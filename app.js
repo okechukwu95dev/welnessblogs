@@ -39,16 +39,23 @@ const App = () => {
   };
 
   const beautifyHtml = (html) => {
-    // Test case if no HTML provided
     if (!html) {
       html = `
-        <div>
-          <h1>Sample Blog Post</h1>
-          <p>This is a test paragraph with some â€™ encoding issues.</p>
-          <img src="test.jpg" alt="test image"/>
-          <div>Main content here</div>
-          <div>Leave a reply</div>
-          <div>Comment form</div>
+        <div class="entry-content">
+          <h1>The Benefits of Meditation</h1>
+          <p>Discover why meditation has become essential for modern life â€™ especially in these stressful times.</p>
+          <img src="meditation.jpg" alt="Person meditating"/>
+          <h2>Key Benefits:</h2>
+          <ul>
+            <li>Reduced stress and anxiety</li>
+            <li>Better sleep quality</li>
+            <li>Increased focus and concentration</li>
+          </ul>
+          <p>Start with just 5 minutes a day â€™ thatâ€™s all you need to begin your journey.</p>
+          <div class="comment-section">
+            <div>Leave a reply</div>
+            <form>Comment form here</form>
+          </div>
         </div>
       `;
     }
@@ -85,6 +92,10 @@ const App = () => {
     const currentItem = data.find(item => item.url === selectedUrl);
     if (currentItem?.html_scraped) {
       const cleanedText = beautifyHtml(currentItem.html_scraped);
+      setBeautifiedContent(cleanedText);
+      setShowTextExtractor(true);
+    } else {
+      const cleanedText = beautifyHtml();  // Use dummy content
       setBeautifiedContent(cleanedText);
       setShowTextExtractor(true);
     }
