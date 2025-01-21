@@ -17,7 +17,7 @@ const App = () => {
         if (result.data && result.data.length) {
           const processedData = result.data.map(item => ({
             ...item,
-            uniqueId: `${item.url}-${item.date}-${item.year}`
+            uniqueId: `${item.url}-${item.timestamp}`
           }));
           const uniqueYears = [...new Set(processedData.map(item => item.year))].sort();
           setYears(uniqueYears);
