@@ -35,18 +35,20 @@ const App = () => {
       key: item.uniqueId,
       complete_scrape_url: item.complete_scrape_url
     });
-    console.log('Currently selected:', selectedUrl);
-    console.log('Will be selecting:', item.uniqueId);
     setSelectedUrl(item.uniqueId);
+  };
+
+  const handleClose = () => {
+    setSelectedUrl(null);
   };
 
   if (loading) return React.createElement('div', null, 'Loading...');
 
-  return React.createElement('div', { className: 'min-h-screen' },
+  return React.createElement('div', { className: 'min-h-screen max-w-[2000px] mx-auto' },
     React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
       // Left Navigation Panel
-      React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
-        React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
+      React.createElement('div', { className: 'w-full md:w-1/4 lg:w-1/5 p-4 border-r overflow-y-auto bg-gray-50' },
+        React.createElement('h1', { className: 'text-xl md:text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
         years.map(year =>
           React.createElement('div', { key: year, className: 'mb-2' },
             React.createElement('button', {
@@ -76,11 +78,21 @@ const App = () => {
         )
       ),
       // Right Content Panel
-      React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        React.createElement('div', { className: 'flex-grow overflow-y-auto' },
+      React.createElement('div', { className: 'w-full md:w-3/4 lg:w-4/5 p-4 flex flex-col' },
+        selectedUrl && React.createElement('div', { className: 'flex justify-end mb-4' },
+          React.createElement('button', {
+            onClick: handleClose,
+            className: 'px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-sm'
+          }, '✕ Close')
+        ),
+        React.createElement('div', { 
+          className: 'flex-grow overflow-y-auto',
+          style: { fontSize: 'clamp(14px, 1vw, 16px)' }
+        },
           selectedUrl && data.find(item => item.uniqueId === selectedUrl)?.html_scraped &&
           React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
             React.createElement('div', {
+              className: 'prose max-w-none',
               dangerouslySetInnerHTML: {
                 __html: data.find(item => item.uniqueId === selectedUrl).html_scraped
               }
