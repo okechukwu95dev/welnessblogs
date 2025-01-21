@@ -87,21 +87,7 @@ const App = () => {
             })
         ),
         
-        // Text Extractor Toggle
-        React.createElement('button', {
-          className: 'mb-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-          onClick: () => setShowTextExtractor(!showTextExtractor)
-        }, showTextExtractor ? 'Hide Text Extractor' : 'Show Text Extractor'),
-        
-        // Text Extractor Panel
-        showTextExtractor && React.createElement('div', {
-          className: 'h-1/3 p-4 bg-gray-100 rounded shadow overflow-y-auto'
-        },
-          React.createElement('h3', { className: 'font-bold mb-2' }, 'Extracted Text'),
-          React.createElement('div', { className: 'whitespace-pre-wrap border p-2 bg-white rounded' },
-            extractedText
-          )
-        )
+
       )
     )
   );
