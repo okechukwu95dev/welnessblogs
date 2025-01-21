@@ -28,48 +28,52 @@ const App = () => {
       .catch(console.error);
   }, []);
 
-  // This function simply removes the content that comes after the "Leave a Reply" text.
-  // It creates a temporary DOM container, searches for a text node that includes the forbidden text,
-  // and then removes that node and all of its following siblings.
+  /**
+   * Updated beautify function:
+   * - Removes any <img> elements.
+   * - Looks for the first <div> whose text content (in any casing) includes "leave a reply" 
+   *   and then removes that div and all its following sibling elements (from its parent).
+   * - Logs and returns the plain text content from the cleaned-up HTML.
+   */
   const beautifyHtml = (html) => {
+    // Create a temporary DOM container
     const temp = document.createElement('div');
     temp.innerHTML = html;
 
-    // Recursive function that checks each child node.
-    const removeAfterForbiddenText = (node) => {
-      let child = node.firstChild;
-      while (child) {
-        // If a text node contains the forbidden text, remove it and all subsequent siblings.
-        if (child.nodeType === Node.TEXT_NODE && child.textContent.includes("Leave a Reply")) {
-          while (child.nextSibling) {
-            node.removeChild(child.nextSibling);
-          }
-          node.removeChild(child);
-          return true;
-        }
-        // If it's an element node, check its inner text.
-        else if (child.nodeType === Node.ELEMENT_NODE) {
-          if (child.innerText && child.innerText.includes("Leave a Reply")) {
-            // Remove this element and all siblings after it.
-            let next = child.nextSibling;
-            while (next) {
-              node.removeChild(next);
-              next = child.nextSibling;
-            }
-            node.removeChild(child);
-            return true;
-          } else {
-            // Recurse inside this element.
-            if (removeAfterForbiddenText(child)) return true;
-          }
-        }
-        child = child.nextSibling;
-      }
-      return false;
-    };
+    // Remove all <img> elements from the HTML.
+    const imgs = temp.querySelectorAll('img');
+    imgs.forEach(img => img.parentNode.removeChild(img));
 
-    removeAfterForbiddenText(temp);
-    return temp.innerHTML;
+    // Find the first <div> that contains "leave a reply" (case-insensitive).
+    const allDivs = temp.querySelectorAll('div');
+    let foundDiv = null;
+    for (let i = 0; i < allDivs.length; i++) {
+      if (allDivs[i].textContent.toLowerCase().includes("leave a reply")) {
+        foundDiv = allDivs[i];
+        break;
+      }
+    }
+
+    // If found, remove that div and all subsequent sibling elements of its parent.
+    if (foundDiv && foundDiv.parentElement) {
+      const parent = foundDiv.parentElement;
+      let remove = false;
+      // Convert HTMLCollection to an array to safely iterate over siblings
+      const siblings = Array.from(parent.children);
+      siblings.forEach(child => {
+        if (child === foundDiv) {
+          remove = true;
+          parent.removeChild(child);
+        } else if (remove) {
+          parent.removeChild(child);
+        }
+      });
+    }
+
+    // Extract the plain text content (with images and trimmed reply area removed)
+    const textContent = temp.textContent.trim();
+    console.log("Beautified Text Content:", textContent);
+    return textContent;
   };
 
   // Called when an item is selected from the left navigation.
@@ -84,8 +88,9 @@ const App = () => {
   const handleBeautify = () => {
     const currentItem = data.find(item => item.url === selectedUrl);
     if (currentItem && currentItem.html_scraped) {
-      const cleanedHtml = beautifyHtml(currentItem.html_scraped);
-      setBeautifiedContent(cleanedHtml);
+      // Get only the plain text content from the HTML after processing:
+      const cleanedText = beautifyHtml(currentItem.html_scraped);
+      setBeautifiedContent(cleanedText);
       setShowTextExtractor(true);
     }
   };
@@ -127,9 +132,9 @@ const App = () => {
         )
       ),
 
-      // Right Panel: Contains the original HTML and, optionally, the beautified content.
+      // Right Panel: Contains the original HTML and, optionally, the beautified (plain text) output.
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        // "Beautify" Button area (shows only when an item is selected).
+        // "Beautify" Button area (only shows if an item has been selected)
         React.createElement('div', { className: 'mb-4' },
           selectedUrl &&
             React.createElement('button', {
@@ -137,7 +142,7 @@ const App = () => {
               onClick: handleBeautify
             }, 'Beautify')
         ),
-        // Content area: displays the original HTML and, if activated, the beautified (cleaned) version
+        // Content area: displays the original HTML and if activated, the beautified plain text output.
         React.createElement('div', { className: 'flex-grow overflow-y-auto' },
           selectedUrl && data.find(item => item.url === selectedUrl)?.html_scraped &&
           React.createElement('div', { className: showTextExtractor ? 'md:flex' : '' },
@@ -149,14 +154,11 @@ const App = () => {
                 }
               })
             ),
-            // Beautified Content Panel (only visible if "Beautify" has been clicked)
+            // Beautified Text Output Panel (only visible if "Beautify" has been clicked)
             showTextExtractor &&
             React.createElement('div', { className: 'md:w-1/2 p-4 bg-white rounded shadow ml-2' },
-              React.createElement('div', {
-                dangerouslySetInnerHTML: {
-                  __html: beautifiedContent
-                }
-              })
+              // Here we display the plain text content.
+              React.createElement('pre', null, beautifiedContent)
             )
           )
         )
