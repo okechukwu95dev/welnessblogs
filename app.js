@@ -1,8 +1,3 @@
-// Force cache clear
-if (window.performance && window.performance.navigation.type === window.performance.navigation.TYPE_RELOAD) {
-  window.location.reload(true);
-}
-
 const App = () => {
   const [data, setData] = React.useState([]);
   const [loading, setLoading] = React.useState(true);
@@ -100,68 +95,65 @@ const App = () => {
 
   if (loading) return React.createElement('div', null, 'Loading...');
 
+  const renderYear = (year) => React.createElement('div', { key: year, className: 'mb-2' },
+    React.createElement('button', {
+      className: 'w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center',
+      onClick: () => setSelectedYear(selectedYear === year ? null : year)
+    },
+      React.createElement('span', null, year),
+      React.createElement('span', null, selectedYear === year ? '▼' : '▶')
+    ),
+    selectedYear === year && React.createElement('div', { className: 'ml-4 mt-2 space-y-2' },
+      data.filter(item => item.year === year)
+        .map(item => React.createElement('button', {
+          key: `${year}-${item.url}`,
+          className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' +
+            (selectedUrl === item.url ? 'bg-blue-100' : ''),
+          onClick: () => handleUrlSelect(item)
+        },
+          React.createElement('div', { className: 'font-medium' }, item.date),
+          React.createElement('div', { className: 'text-xs text-gray-600 truncate' }, item.url)
+        ))
+    )
+  );
+
+  const renderButtons = () => selectedUrl && React.createElement('div', { className: 'mb-4 flex space-x-4' }, [
+    React.createElement('button', {
+      key: 'beautify',
+      className: 'px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600',
+      onClick: handleBeautify
+    }, 'Beautify'),
+    React.createElement('button', {
+      key: 'copy',
+      className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+      onClick: handleCopyHtml
+    }, 'Copy First 10 Lines')
+  ]);
+
+  const renderContent = () => showTextExtractor && React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
+    React.createElement('pre', { className: 'whitespace-pre-wrap' }, beautifiedContent)
+  );
+
   return React.createElement('div', { className: 'min-h-screen' },
     React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
-      // Left Panel
       React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
         React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
-        years.map(year =>
-          React.createElement('div', { key: year, className: 'mb-2' },
-            React.createElement('button', {
-              className: 'w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center',
-              onClick: () => setSelectedYear(selectedYear === year ? null : year)
-            },
-              React.createElement('span', null, year),
-              React.createElement('span', null, selectedYear === year ? '▼' : '▶')
-            ),
-            selectedYear === year &&
-              React.createElement('div', { className: 'ml-4 mt-2 space-y-2' },
-                data.filter(item => item.year === year)
-                  .map(item =>
-                    React.createElement('button', {
-                      key: `${year}-${item.url}`,
-                      className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' +
-                        (selectedUrl === item.url ? 'bg-blue-100' : ''),
-                      onClick: () => handleUrlSelect(item)
-                    },
-                      React.createElement('div', { className: 'font-medium' }, item.date),
-                      React.createElement('div', { className: 'text-xs text-gray-600 truncate' }, item.url)
-                    )
-                  )
-              )
-          )
-        )
+        years.map(renderYear)
       ),
-      // Right Panel
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        // Buttons
-        React.createElement('div', { className: 'mb-4 flex space-x-4' },
-          selectedUrl && [
-            React.createElement('button', {
-              key: 'beautify',
-              className: 'px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600',
-              onClick: handleBeautify
-            }, 'Beautify'),
-            React.createElement('button', {
-              key: 'copy',
-              className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-              onClick: handleCopyHtml
-            }, 'Copy First 10 Lines')
-          ]
-        ),
-        // Content
+        renderButtons(),
         React.createElement('div', { className: 'flex-grow overflow-y-auto' },
-          showTextExtractor &&
-            React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
-              React.createElement('pre', { className: 'whitespace-pre-wrap' }, beautifiedContent)
-            )
+          renderContent()
         )
       )
     )
   );
 };
 
-ReactDOM.render(
-  React.createElement(App),
-  document.getElementById('root')
-);
+// Initialize the app
+document.addEventListener('DOMContentLoaded', () => {
+  ReactDOM.render(
+    React.createElement(App),
+    document.getElementById('root')
+  );
+});
