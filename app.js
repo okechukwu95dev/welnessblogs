@@ -45,11 +45,11 @@ React.useEffect(() => {
 
 const fixEncodingIssues = (htmlString) => {
   const replacements = [
-    { find: /â/g, replace: "'" },
-    { find: /â/g, replace: """ },
-    { find: /â/g, replace: """ },
-    { find: /â/g, replace: "–" },
-    { find: /Â/g, replace: "" },
+    // { find: /â/g, replace: "'" },
+    // { find: /â/g, replace: """ },
+    // { find: /â/g, replace: """ },
+    // { find: /â/g, replace: "–" },
+    // { find: /Â/g, replace: "" },
   ];
 
   let out = htmlString;
