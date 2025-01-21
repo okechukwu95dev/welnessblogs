@@ -111,33 +111,77 @@ const App = () => {
     }
   };
 
-  // if (loading) return (<div>Loading...</div>);
+  if (loading) return <div>Loading...</div>;
 
   return (
-    <div>
-      <div>
-        {years.map((year) => (
-          <div key={year}>
-            <button onClick={() => setSelectedYear(year)}>{year}</button>
-            {selectedYear === year &&
-              data
-                .filter((item) => item.year === year)
-                .map((item) => (
-                  <button key={item.url} onClick={() => handleUrlSelect(item)}>
-                    {item.url}
-                  </button>
-                ))}
+    <div className="min-h-screen">
+      <div className="flex flex-col md:flex-row h-screen">
+        {/* Left Panel */}
+        <div className="w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50">
+          <h1 className="text-2xl mb-4 font-bold">Wellness Blogs</h1>
+          {years.map((year) => (
+            <div key={year} className="mb-2">
+              <button
+                className="w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center"
+                onClick={() => setSelectedYear(selectedYear === year ? null : year)}
+              >
+                <span>{year}</span>
+                <span>{selectedYear === year ? '▼' : '▶'}</span>
+              </button>
+              {selectedYear === year && (
+                <div className="ml-4 mt-2 space-y-2">
+                  {data
+                    .filter((item) => item.year === year)
+                    .map((item) => (
+                      <button
+                        key={item.url}
+                        className={
+                          'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' +
+                          (selectedUrl === item.url ? 'bg-blue-100' : '')
+                        }
+                        onClick={() => handleUrlSelect(item)}
+                      >
+                        <div className="font-medium">{item.date}</div>
+                        <div className="text-xs text-gray-600 truncate">{item.url}</div>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Right Panel */}
+        <div className="w-full md:w-3/4 p-4 flex flex-col">
+          {/* Buttons */}
+          <div className="mb-4 flex space-x-4">
+            {selectedUrl && (
+              <>
+                <button
+                  className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                  onClick={handleBeautify}
+                >
+                  Beautify
+                </button>
+                <button
+                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                  onClick={handleCopyHtml}
+                >
+                  Copy First 10 Lines
+                </button>
+              </>
+            )}
           </div>
-        ))}
-      </div>
-      <div>
-        {selectedUrl && (
-          <>
-            <button onClick={handleBeautify}>Beautifymaxy</button>
-            <button onClick={handleCopyHtml}>Copy First 10 Lines</button>
-          </>
-        )}
-        {showTextExtractor && <pre>{beautifiedContent}</pre>}
+
+          {/* Beautified or Copied Content */}
+          <div className="flex-grow overflow-y-auto">
+            {showTextExtractor && (
+              <div className="p-4 bg-white rounded shadow">
+                <pre className="whitespace-pre-wrap">{beautifiedContent}</pre>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
