@@ -98,6 +98,19 @@ const App = () => {
     }
   };
 
+  const handleCopyHtml = () => {
+    const currentItem = data.find((item) => item.url === selectedUrl);
+    if (currentItem?.html_scraped) {
+      const htmlLines = currentItem.html_scraped.split('\n').slice(0, 10).join('\n');
+      setBeautifiedContent(htmlLines);
+      setShowTextExtractor(true);
+    } else if (dummyMode) {
+      const htmlLines = getDummyHtml().split('\n').slice(0, 10).join('\n');
+      setBeautifiedContent(htmlLines);
+      setShowTextExtractor(true);
+    }
+  };
+
   if (loading) return <div>Loading...</div>;
 
   return (
@@ -118,7 +131,12 @@ const App = () => {
         ))}
       </div>
       <div>
-        {selectedUrl && <button onClick={handleBeautify}>Beautify</button>}
+        {selectedUrl && (
+          <>
+            <button onClick={handleBeautify}>Beautify</button>
+            <button onClick={handleCopyHtml}>Copy First 10 Lines</button>
+          </>
+        )}
         {showTextExtractor && <pre>{beautifiedContent}</pre>}
       </div>
     </div>
