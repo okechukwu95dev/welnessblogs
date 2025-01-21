@@ -29,8 +29,13 @@ const App = () => {
   }, []);
 
   const handleUrlSelect = (item) => {
-    console.log('Selected item:', item.url, item.date);
-    setSelectedUrl(item.url);
+    console.log('Selected item:', {
+      url: item.url,
+      date: item.date,
+      key: item.uniqueId,
+      timestamp: item.timestamp
+    });
+    setSelectedUrl(item.uniqueId); // Change to use uniqueId instead of url
   };
 
   if (loading) return React.createElement('div', null, 'Loading...');
@@ -57,7 +62,7 @@ const App = () => {
                     React.createElement('button', {
                       key: item.uniqueId,
                       className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' +
-                        (selectedUrl === item.url ? 'bg-blue-100' : ''),
+                        (selectedUrl === item.uniqueId ? 'bg-blue-100' : ''),
                       onClick: () => handleUrlSelect(item)
                     },
                       React.createElement('div', { className: 'font-medium' }, item.date),
