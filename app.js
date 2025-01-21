@@ -5,7 +5,8 @@ const App = () => {
   const [selectedYear, setSelectedYear] = React.useState(null);
   const [selectedUrl, setSelectedUrl] = React.useState(null);
   const [showTextExtractor, setShowTextExtractor] = React.useState(false);
-  const [extractedBlocks, setExtractedBlocks] = React.useState([]);
+  const [processedHtml, setProcessedHtml] = React.useState('');
+  const [extractedText, setExtractedText] = React.useState('');
 
   React.useEffect(() => {
     const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
@@ -13,12 +14,7 @@ const App = () => {
       .then(response => response.text())
       .then(csvText => {
         const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-        const uniqueData = result.data.reduce((acc, curr) => {
-          const key = \`\${curr.url}_\${curr.date}\`;
-          if (!acc[key]) acc[key] = curr;
-          return acc;
-        }, {});
-        const processedData = Object.values(uniqueData);
+        const processedData = result.data;
         setYears([...new Set(processedData.map(item => item.year))].sort());
         setData(processedData);
         setLoading(false);
@@ -26,38 +22,55 @@ const App = () => {
       .catch(console.error);
   }, []);
 
-  const extractTextBlocks = (html) => {
+  const wrapAllImages = (htmlString) => {
+    const temp = document.createElement('div');
+    temp.innerHTML = htmlString;
+    const elements = temp.querySelectorAll('img,[role="img"],[role="image"],[role="icon"]');
+    Array.from(elements).forEach(el => {
+      const alt = el.getAttribute('alt') || '';
+      const src = el.getAttribute('src') || '';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'image-block';
+      wrapper.style.border = '1px dashed #999';
+      wrapper.style.padding = '4px';
+      wrapper.style.margin = '4px 0';
+      const label = document.createElement('div');
+      label.style.fontSize = '0.85em';
+      label.style.color = '#666';
+      label.style.marginBottom = '3px';
+      label.innerHTML = `<strong>Image</strong> [alt="${alt}" src="${src.length > 50 ? src.slice(0, 50) + '...' : src}"]`;
+      wrapper.appendChild(label);
+      wrapper.appendChild(el.cloneNode(true));
+      el.parentNode.replaceChild(wrapper, el);
+    });
+    return temp.innerHTML;
+  };
+
+  const extractText = (html) => {
     const temp = document.createElement('div');
     temp.innerHTML = html;
-    const blocks = [];
-    const colors = ['#FFE4E1', '#E6E6FA', '#F0FFF0', '#FFF0F5', '#F5F5DC'];
-    let colorIndex = 0;
+    const text = temp.textContent || temp.innerText;
+    return text.replace(/\s+/g, ' ').trim();
+  };
 
-    const processNode = (node) => {
-      if (node.nodeType === Node.ELEMENT_NODE && node.textContent.trim()) {
-        const textContent = node.textContent.trim();
-        if (textContent) {
-          blocks.push({
-            id: \`block_\${Math.random()}\`,
-            text: textContent,
-            color: colors[colorIndex % colors.length]
-          });
-          colorIndex++;
-        }
-      }
-      node.childNodes.forEach(child => processNode(child));
-    };
+  const handleUrlSelect = (item) => {
+    setSelectedUrl(item.url);
+    setProcessedHtml(wrapAllImages(item.html_scraped || ''));
+  };
 
-    processNode(temp);
-    setExtractedBlocks(blocks);
-    setShowTextExtractor(true);
+  const handleExtractText = () => {
+    const content = data.find(item => item.url === selectedUrl);
+    if (content) {
+      setExtractedText(extractText(content.html_scraped));
+      setShowTextExtractor(true);
+    }
   };
 
   if (loading) return React.createElement('div', null, 'Loading...');
 
   return React.createElement('div', { className: 'min-h-screen' },
     React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
-      // Left Panel
+      // Left Panel - Navigation
       React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
         React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
         years.map(year => 
@@ -72,15 +85,12 @@ const App = () => {
             selectedYear === year && 
               React.createElement('div', { className: 'ml-4 mt-2 space-y-2' },
                 data.filter(item => item.year === year)
-                    .map((item, index) => 
+                    .map(item => 
                       React.createElement('button', {
-                        key: \`\${item.url}_\${index}\`,
+                        key: item.url,
                         className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' + 
                                  (selectedUrl === item.url ? 'bg-blue-100' : ''),
-                        onClick: () => {
-                          setSelectedUrl(item.url);
-                          setShowTextExtractor(false);
-                        }
+                        onClick: () => handleUrlSelect(item)
                       },
                         React.createElement('div', { className: 'font-medium' }, item.date),
                         React.createElement('div', { className: 'text-xs text-gray-600 truncate' }, item.url)
@@ -91,37 +101,40 @@ const App = () => {
         )
       ),
       
-      // Right Panel
+      // Right Panel - Content and Extractor
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        // Extract Text Button
-        React.createElement('button', {
-          className: 'mb-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-          onClick: () => {
-            const content = data.find(item => item.url === selectedUrl);
-            if (content) extractTextBlocks(content.html_scraped);
-          }
-        }, 'Extract Text Blocks'),
-
-        // Content Display
-        !showTextExtractor && selectedUrl && 
-          React.createElement('div', {
-            className: 'flex-grow overflow-y-auto',
-            dangerouslySetInnerHTML: { 
-              __html: data.find(item => item.url === selectedUrl)?.html_scraped 
-            }
-          }),
-
-        // Extracted Blocks Display
-        showTextExtractor && 
-          React.createElement('div', { className: 'flex-grow overflow-y-auto' },
-            extractedBlocks.map(block => 
-              React.createElement('div', {
-                key: block.id,
-                className: 'p-4 mb-4 rounded shadow',
-                style: { backgroundColor: block.color }
-              }, block.text)
-            )
+        // Actions
+        React.createElement('div', { className: 'mb-4 flex gap-2' },
+          React.createElement('button', {
+            className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+            onClick: handleExtractText
+          }, 'Extract Text'),
+          React.createElement('button', {
+            className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+            onClick: () => setShowTextExtractor(!showTextExtractor)
+          }, showTextExtractor ? 'Hide Extracted Text' : 'Show Extracted Text')
+        ),
+        
+        // Content Area
+        React.createElement('div', { 
+          className: 'flex-grow overflow-y-auto mb-4 ' + (showTextExtractor ? 'h-2/3' : 'h-full')
+        },
+          selectedUrl && 
+            React.createElement('div', {
+              className: 'p-4 bg-white rounded shadow',
+              dangerouslySetInnerHTML: { html: processedHtml }
+            })
+        ),
+        
+        // Text Extractor Panel
+        showTextExtractor && React.createElement('div', {
+          className: 'h-1/3 p-4 bg-gray-100 rounded shadow overflow-y-auto'
+        },
+          React.createElement('h3', { className: 'font-bold mb-2' }, 'Extracted Text'),
+          React.createElement('div', { className: 'whitespace-pre-wrap border p-2 bg-white rounded' },
+            extractedText
           )
+        )
       )
     )
   );
