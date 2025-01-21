@@ -133,7 +133,7 @@ const App = () => {
       <div>
         {selectedUrl && (
           <>
-            <button onClick={handleBeautify}>Beautify</button>
+            <button onClick={handleBeautify}>Beautifymaxy</button>
             <button onClick={handleCopyHtml}>Copy First 10 Lines</button>
           </>
         )}
