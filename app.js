@@ -1,4 +1,4 @@
-// Force clear cache on refresh
+// Force cache clear
 if (window.performance && window.performance.navigation.type === window.performance.navigation.TYPE_RELOAD) {
   window.location.reload(true);
 }
@@ -14,22 +14,21 @@ const App = () => {
   const [dummyMode, setDummyMode] = React.useState(false);
 
   React.useEffect(() => {
-    const csvUrl =
-      'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
+    const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
     fetch(csvUrl)
-      .then((response) => response.text())
-      .then((csvText) => {
+      .then(response => response.text())
+      .then(csvText => {
         const result = Papa.parse(csvText, {
           header: true,
           skipEmptyLines: true,
           error: (error) => {
             console.error('CSV parsing error:', error);
             setDummyMode(true);
-          },
+          }
         });
         if (result.data && result.data.length) {
           const processedData = result.data;
-          const uniqueYears = [...new Set(processedData.map((item) => item.year))].sort();
+          const uniqueYears = [...new Set(processedData.map(item => item.year))].sort();
           setYears(uniqueYears);
           setData(processedData);
         } else {
@@ -37,23 +36,12 @@ const App = () => {
         }
         setLoading(false);
       })
-      .catch((error) => {
+      .catch(error => {
         console.error('Fetch error:', error);
         setDummyMode(true);
         setLoading(false);
       });
   }, []);
-
-  const fixEncodingIssues = (htmlString) => {
-    const replacements = [
-      // Add replacements for encoding issues here
-    ];
-    let out = htmlString;
-    replacements.forEach((r) => {
-      out = out.replace(r.find, r.replace);
-    });
-    return out;
-  };
 
   const getDummyHtml = () => `
     <div class="entry-content">
@@ -71,9 +59,8 @@ const App = () => {
   const beautifyHtml = (html) => {
     const htmlToProcess = html || getDummyHtml();
     const parser = new DOMParser();
-    const fixedHtml = fixEncodingIssues(htmlToProcess);
-    const doc = parser.parseFromString(fixedHtml, 'text/html');
-    doc.querySelectorAll('img').forEach((img) => img.remove());
+    const doc = parser.parseFromString(htmlToProcess, 'text/html');
+    doc.querySelectorAll('img').forEach(img => img.remove());
     return doc.body.textContent.trim();
   };
 
@@ -90,7 +77,7 @@ const App = () => {
       setShowTextExtractor(true);
       return;
     }
-    const currentItem = data.find((item) => item.url === selectedUrl);
+    const currentItem = data.find(item => item.url === selectedUrl);
     if (currentItem?.html_scraped) {
       const cleanedText = beautifyHtml(currentItem.html_scraped);
       setBeautifiedContent(cleanedText);
@@ -99,7 +86,7 @@ const App = () => {
   };
 
   const handleCopyHtml = () => {
-    const currentItem = data.find((item) => item.url === selectedUrl);
+    const currentItem = data.find(item => item.url === selectedUrl);
     if (currentItem?.html_scraped) {
       const htmlLines = currentItem.html_scraped.split('\n').slice(0, 10).join('\n');
       setBeautifiedContent(htmlLines);
@@ -111,80 +98,70 @@ const App = () => {
     }
   };
 
-  if (loading) return <div>Loading...</div>;
+  if (loading) return React.createElement('div', null, 'Loading...');
 
-  return (
-    <div className="min-h-screen">
-      <div className="flex flex-col md:flex-row h-screen">
-        {/* Left Panel */}
-        <div className="w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50">
-          <h1 className="text-2xl mb-4 font-bold">Wellness Blogs</h1>
-          {years.map((year) => (
-            <div key={year} className="mb-2">
-              <button
-                className="w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center"
-                onClick={() => setSelectedYear(selectedYear === year ? null : year)}
-              >
-                <span>{year}</span>
-                <span>{selectedYear === year ? '▼' : '▶'}</span>
-              </button>
-              {selectedYear === year && (
-                <div className="ml-4 mt-2 space-y-2">
-                  {data
-                    .filter((item) => item.year === year)
-                    .map((item) => (
-                      <button
-                        key={item.url}
-                        className={
-                          'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' +
-                          (selectedUrl === item.url ? 'bg-blue-100' : '')
-                        }
-                        onClick={() => handleUrlSelect(item)}
-                      >
-                        <div className="font-medium">{item.date}</div>
-                        <div className="text-xs text-gray-600 truncate">{item.url}</div>
-                      </button>
-                    ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-
-        {/* Right Panel */}
-        <div className="w-full md:w-3/4 p-4 flex flex-col">
-          {/* Buttons */}
-          <div className="mb-4 flex space-x-4">
-            {selectedUrl && (
-              <>
-                <button
-                  className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
-                  onClick={handleBeautify}
-                >
-                  Beautify
-                </button>
-                <button
-                  className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                  onClick={handleCopyHtml}
-                >
-                  Copy First 10 Lines
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Beautified or Copied Content */}
-          <div className="flex-grow overflow-y-auto">
-            {showTextExtractor && (
-              <div className="p-4 bg-white rounded shadow">
-                <pre className="whitespace-pre-wrap">{beautifiedContent}</pre>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+  return React.createElement('div', { className: 'min-h-screen' },
+    React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
+      // Left Panel
+      React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
+        React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
+        years.map(year =>
+          React.createElement('div', { key: year, className: 'mb-2' },
+            React.createElement('button', {
+              className: 'w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center',
+              onClick: () => setSelectedYear(selectedYear === year ? null : year)
+            },
+              React.createElement('span', null, year),
+              React.createElement('span', null, selectedYear === year ? '▼' : '▶')
+            ),
+            selectedYear === year &&
+              React.createElement('div', { className: 'ml-4 mt-2 space-y-2' },
+                data.filter(item => item.year === year)
+                  .map(item =>
+                    React.createElement('button', {
+                      key: `${year}-${item.url}`,
+                      className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' +
+                        (selectedUrl === item.url ? 'bg-blue-100' : ''),
+                      onClick: () => handleUrlSelect(item)
+                    },
+                      React.createElement('div', { className: 'font-medium' }, item.date),
+                      React.createElement('div', { className: 'text-xs text-gray-600 truncate' }, item.url)
+                    )
+                  )
+              )
+          )
+        )
+      ),
+      // Right Panel
+      React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
+        // Buttons
+        React.createElement('div', { className: 'mb-4 flex space-x-4' },
+          selectedUrl && [
+            React.createElement('button', {
+              key: 'beautify',
+              className: 'px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600',
+              onClick: handleBeautify
+            }, 'Beautify'),
+            React.createElement('button', {
+              key: 'copy',
+              className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+              onClick: handleCopyHtml
+            }, 'Copy First 10 Lines')
+          ]
+        ),
+        // Content
+        React.createElement('div', { className: 'flex-grow overflow-y-auto' },
+          showTextExtractor &&
+            React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
+              React.createElement('pre', { className: 'whitespace-pre-wrap' }, beautifiedContent)
+            )
+        )
+      )
+    )
   );
 };
 
-ReactDOM.render(<App />, document.getElementById('root'));
+ReactDOM.render(
+  React.createElement(App),
+  document.getElementById('root')
+);
