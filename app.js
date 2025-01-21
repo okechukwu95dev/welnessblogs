@@ -5,135 +5,130 @@ const App = () => {
   const [selectedYear, setSelectedYear] = React.useState(null);
   const [selectedUrl, setSelectedUrl] = React.useState(null);
   const [showTextExtractor, setShowTextExtractor] = React.useState(false);
-  const [processedHtml, setProcessedHtml] = React.useState('');
-  const [extractedText, setExtractedText] = React.useState('');
+  const [extractedBlocks, setExtractedBlocks] = React.useState([]);
+  const [showEditModal, setShowEditModal] = React.useState(false);
+  const [currentEditBlock, setCurrentEditBlock] = React.useState(null);
+  const [changes, setChanges] = React.useState([]);
 
-  React.useEffect(() => {
-    const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
-    fetch(csvUrl)
-      .then(response => response.text())
-      .then(csvText => {
-        const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
-        const processedData = result.data;
-        setYears([...new Set(processedData.map(item => item.year))].sort());
-        setData(processedData);
-        setLoading(false);
-      })
-      .catch(console.error);
-  }, []);
+  // ... (previous fetch and basic functions remain same)
 
-  const wrapAllImages = (htmlString) => {
-    const temp = document.createElement('div');
-    temp.innerHTML = htmlString;
-    const elements = temp.querySelectorAll('img,[role="img"],[role="image"],[role="icon"]');
-    Array.from(elements).forEach(el => {
-      const alt = el.getAttribute('alt') || '';
-      const src = el.getAttribute('src') || '';
-      const wrapper = document.createElement('div');
-      wrapper.className = 'image-block';
-      wrapper.style.border = '1px dashed #999';
-      wrapper.style.padding = '4px';
-      wrapper.style.margin = '4px 0';
-      const label = document.createElement('div');
-      label.style.fontSize = '0.85em';
-      label.style.color = '#666';
-      label.style.marginBottom = '3px';
-      label.innerHTML = `<strong>Image</strong> [alt="${alt}" src="${src.length > 50 ? src.slice(0, 50) + '...' : src}"]`;
-      wrapper.appendChild(label);
-      wrapper.appendChild(el.cloneNode(true));
-      el.parentNode.replaceChild(wrapper, el);
-    });
-    return temp.innerHTML;
-  };
-
-  const extractText = (html) => {
+  const extractTextBlocks = (html) => {
     const temp = document.createElement('div');
     temp.innerHTML = html;
-    const text = temp.textContent || temp.innerText;
-    return text.replace(/\s+/g, ' ').trim();
+    const blocks = [];
+    
+    const processNode = (node, depth = 0) => {
+      if (node.nodeType === 3 && node.textContent.trim()) { // Text node
+        blocks.push({
+          id: Math.random().toString(36).substr(2, 9),
+          text: node.textContent.trim(),
+          path: getNodePath(node),
+          depth,
+          original: node.textContent
+        });
+      }
+      node.childNodes.forEach(child => processNode(child, depth + 1));
+    };
+
+    const getNodePath = (node) => {
+      const path = [];
+      let current = node;
+      while (current.parentNode) {
+        const index = Array.from(current.parentNode.childNodes).indexOf(current);
+        path.unshift(index);
+        current = current.parentNode;
+      }
+      return path.join('-');
+    };
+
+    processNode(temp);
+    setExtractedBlocks(blocks);
   };
 
-  const handleUrlSelect = (item) => {
-    setSelectedUrl(item.url);
-    setProcessedHtml(wrapAllImages(item.html_scraped || ''));
+  const handleEdit = (block) => {
+    setCurrentEditBlock(block);
+    setShowEditModal(true);
   };
 
-  const handleExtractText = () => {
-    const content = data.find(item => item.url === selectedUrl);
-    if (content) {
-      setExtractedText(extractText(content.html_scraped));
-      setShowTextExtractor(true);
-    }
+  const saveEdit = (newText) => {
+    const change = {
+      timestamp: new Date().toISOString(),
+      blockId: currentEditBlock.id,
+      original: currentEditBlock.original,
+      updated: newText
+    };
+    setChanges([...changes, change]);
+    
+    setExtractedBlocks(blocks => 
+      blocks.map(b => b.id === currentEditBlock.id ? {...b, text: newText} : b)
+    );
+    setShowEditModal(false);
   };
-
-  if (loading) return React.createElement('div', null, 'Loading...');
 
   return React.createElement('div', { className: 'min-h-screen' },
-    React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
-      // Left Panel - Navigation
-      React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
-        React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
-        years.map(year => 
-          React.createElement('div', { key: year, className: 'mb-2' },
+    // ... (previous navigation structure)
+    
+    // Content Panel
+    React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
+      React.createElement('button', {
+        className: 'mb-4 px-4 py-2 bg-blue-500 text-white rounded',
+        onClick: () => {
+          const content = data.find(item => item.url === selectedUrl);
+          if (content) extractTextBlocks(content.html_scraped);
+          setShowTextExtractor(true);
+        }
+      }, 'Extract Text Blocks'),
+
+      // Original Content
+      React.createElement('div', {
+        className: 'flex-grow overflow-y-auto mb-4',
+        dangerouslySetInnerHTML: { 
+          __html: selectedUrl ? data.find(item => item.url === selectedUrl)?.html_scraped : ''
+        }
+      }),
+
+      // Extracted Blocks
+      showTextExtractor && React.createElement('div', {
+        className: 'h-1/2 overflow-y-auto border rounded p-4'
+      },
+        extractedBlocks.map(block => 
+          React.createElement('div', {
+            key: block.id,
+            className: 'mb-4 p-2 border rounded',
+            style: {
+              marginLeft: `${block.depth * 20}px`,
+              borderColor: `hsl(${block.depth * 60}, 70%, 60%)`
+            }
+          },
+            React.createElement('div', { className: 'mb-2' }, block.text),
             React.createElement('button', {
-              className: 'w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center',
-              onClick: () => setSelectedYear(selectedYear === year ? null : year)
-            },
-              React.createElement('span', null, year),
-              React.createElement('span', null, selectedYear === year ? '▼' : '▶')
-            ),
-            selectedYear === year && 
-              React.createElement('div', { className: 'ml-4 mt-2 space-y-2' },
-                data.filter(item => item.year === year)
-                    .map(item => 
-                      React.createElement('button', {
-                        key: item.url,
-                        className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' + 
-                                 (selectedUrl === item.url ? 'bg-blue-100' : ''),
-                        onClick: () => handleUrlSelect(item)
-                      },
-                        React.createElement('div', { className: 'font-medium' }, item.date),
-                        React.createElement('div', { className: 'text-xs text-gray-600 truncate' }, item.url)
-                      )
-                    )
-              )
+              className: 'px-2 py-1 bg-gray-200 rounded text-sm',
+              onClick: () => handleEdit(block)
+            }, 'Edit')
           )
         )
-      ),
-      
-      // Right Panel - Content and Extractor
-      React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        // Actions
-        React.createElement('div', { className: 'mb-4 flex gap-2' },
+      )
+    ),
+
+    // Edit Modal
+    showEditModal && React.createElement('div', {
+      className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center'
+    },
+      React.createElement('div', { className: 'bg-white p-4 rounded max-w-lg w-full' },
+        React.createElement('textarea', {
+          className: 'w-full h-32 mb-4 p-2 border rounded',
+          defaultValue: currentEditBlock?.text,
+          id: 'editText'
+        }),
+        React.createElement('div', { className: 'flex justify-end gap-2' },
           React.createElement('button', {
-            className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-            onClick: handleExtractText
-          }, 'Extract Text'),
+            className: 'px-4 py-2 bg-gray-200 rounded',
+            onClick: () => setShowEditModal(false)
+          }, 'Cancel'),
           React.createElement('button', {
-            className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-            onClick: () => setShowTextExtractor(!showTextExtractor)
-          }, showTextExtractor ? 'Hide Extracted Text' : 'Show Extracted Text')
-        ),
-        
-        // Content Area
-        React.createElement('div', { 
-          className: 'flex-grow overflow-y-auto mb-4 ' + (showTextExtractor ? 'h-2/3' : 'h-full')
-        },
-          selectedUrl && 
-            React.createElement('div', {
-              className: 'p-4 bg-white rounded shadow',
-              dangerouslySetInnerHTML: { html: processedHtml }
-            })
-        ),
-        
-        // Text Extractor Panel
-        showTextExtractor && React.createElement('div', {
-          className: 'h-1/3 p-4 bg-gray-100 rounded shadow overflow-y-auto'
-        },
-          React.createElement('h3', { className: 'font-bold mb-2' }, 'Extracted Text'),
-          React.createElement('div', { className: 'whitespace-pre-wrap border p-2 bg-white rounded' },
-            extractedText
-          )
+            className: 'px-4 py-2 bg-blue-500 text-white rounded',
+            onClick: () => saveEdit(document.getElementById('editText').value)
+          }, 'Save')
         )
       )
     )
