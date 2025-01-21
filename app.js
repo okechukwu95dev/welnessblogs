@@ -38,24 +38,27 @@ const App = () => {
       });
   }, []);
 
-  const getDummyHtml = () => `
-    <div class="entry-content">
-      <h1>The Benefits of Meditation</h1>
-      <p>Discover why meditation has become essential for modern life.</p>
-      <img src="meditation.jpg" alt="Person meditating"/>
-      <ul>
-        <li>Reduced stress and anxiety</li>
-        <li>Better sleep quality</li>
-        <li>Increased focus and concentration</li>
-      </ul>
-    </div>
-  `;
-
   const beautifyHtml = (html) => {
-    const htmlToProcess = html || getDummyHtml();
     const parser = new DOMParser();
-    const doc = parser.parseFromString(htmlToProcess, 'text/html');
+    const doc = parser.parseFromString(html || '', 'text/html');
+    
+    // Remove images first
     doc.querySelectorAll('img').forEach(img => img.remove());
+    
+    // Find 'Leave a Reply' section (case-insensitive) and remove it plus everything after
+    const allElements = doc.body.getElementsByTagName('*');
+    for (let i = 0; i < allElements.length; i++) {
+      const element = allElements[i];
+      if (element.textContent.toLowerCase().includes('leave a reply')) {
+        // Remove this element and all following siblings
+        while (element.nextSibling) {
+          element.nextSibling.remove();
+        }
+        element.remove();
+        break;
+      }
+    }
+    
     return doc.body.textContent.trim();
   };
 
@@ -66,29 +69,10 @@ const App = () => {
   };
 
   const handleBeautify = () => {
-    if (dummyMode) {
-      const cleanedText = beautifyHtml(null);
-      setBeautifiedContent(cleanedText);
-      setShowTextExtractor(true);
-      return;
-    }
     const currentItem = data.find(item => item.url === selectedUrl);
     if (currentItem?.html_scraped) {
       const cleanedText = beautifyHtml(currentItem.html_scraped);
       setBeautifiedContent(cleanedText);
-      setShowTextExtractor(true);
-    }
-  };
-
-  const handleCopyHtml = () => {
-    const currentItem = data.find(item => item.url === selectedUrl);
-    if (currentItem?.html_scraped) {
-      const htmlLines = currentItem.html_scraped.split('\n').slice(0, 10).join('\n');
-      setBeautifiedContent(htmlLines);
-      setShowTextExtractor(true);
-    } else if (dummyMode) {
-      const htmlLines = getDummyHtml().split('\n').slice(0, 10).join('\n');
-      setBeautifiedContent(htmlLines);
       setShowTextExtractor(true);
     }
   };
@@ -117,22 +101,36 @@ const App = () => {
     )
   );
 
-  const renderButtons = () => selectedUrl && React.createElement('div', { className: 'mb-4 flex space-x-4' }, [
-    React.createElement('button', {
-      key: 'beautify',
-      className: 'px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600',
-      onClick: handleBeautify
-    }, 'Beautify'),
-    React.createElement('button', {
-      key: 'copy',
-      className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-      onClick: handleCopyHtml
-    }, 'Copy First 10 Lines')
-  ]);
+  const renderContent = () => {
+    if (!showTextExtractor) return null;
 
-  const renderContent = () => showTextExtractor && React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
-    React.createElement('pre', { className: 'whitespace-pre-wrap' }, beautifiedContent)
-  );
+    const currentItem = data.find(item => item.url === selectedUrl);
+    return React.createElement('div', { className: 'md:flex space-x-4' }, [
+      React.createElement('div', { 
+        key: 'original',
+        className: 'md:w-1/2 p-4 bg-white rounded shadow'
+      },
+        React.createElement('div', {
+          dangerouslySetInnerHTML: {
+            __html: currentItem?.html_scraped || ''
+          }
+        })
+      ),
+      React.createElement('div', { 
+        key: 'beautified',
+        className: 'md:w-1/2 p-4 bg-white rounded shadow border border-gray-200' 
+      },
+        React.createElement('div', { className: 'space-y-4' },
+          beautifiedContent.split('\n\n').map((section, idx) => 
+            React.createElement('div', {
+              key: idx,
+              className: 'p-3 border-b border-gray-200 last:border-b-0'
+            }, section)
+          )
+        )
+      )
+    ]);
+  };
 
   return React.createElement('div', { className: 'min-h-screen' },
     React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
@@ -141,7 +139,12 @@ const App = () => {
         years.map(renderYear)
       ),
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        renderButtons(),
+        React.createElement('div', { className: 'mb-4' },
+          selectedUrl && React.createElement('button', {
+            className: 'px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600',
+            onClick: handleBeautify
+          }, 'Beautify')
+        ),
         React.createElement('div', { className: 'flex-grow overflow-y-auto' },
           renderContent()
         )
@@ -150,10 +153,7 @@ const App = () => {
   );
 };
 
-// Initialize the app
-document.addEventListener('DOMContentLoaded', () => {
-  ReactDOM.render(
-    React.createElement(App),
-    document.getElementById('root')
-  );
-});
+ReactDOM.render(
+  React.createElement(App),
+  document.getElementById('root')
+);
