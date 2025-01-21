@@ -35,7 +35,9 @@ const App = () => {
       key: item.uniqueId,
       timestamp: item.timestamp
     });
-    setSelectedUrl(item.uniqueId); // Change to use uniqueId instead of url
+    console.log('Currently selected:', selectedUrl);
+    console.log('Will be selecting:', item.uniqueId);
+    setSelectedUrl(item.uniqueId);
   };
 
   if (loading) return React.createElement('div', null, 'Loading...');
@@ -76,11 +78,11 @@ const App = () => {
       // Right Content Panel
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
         React.createElement('div', { className: 'flex-grow overflow-y-auto' },
-          selectedUrl && data.find(item => item.url === selectedUrl)?.html_scraped &&
+          selectedUrl && data.find(item => item.uniqueId === selectedUrl)?.html_scraped &&
           React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
             React.createElement('div', {
               dangerouslySetInnerHTML: {
-                __html: data.find(item => item.url === selectedUrl).html_scraped
+                __html: data.find(item => item.uniqueId === selectedUrl).html_scraped
               }
             })
           )
