@@ -28,7 +28,7 @@ const App = () => {
       .catch(console.error);
   }, []);
 
-  // This function simply removes the content that comes after the "Posted in Uncategorized." text.
+  // This function simply removes the content that comes after the "Leave a Reply" text.
   // It creates a temporary DOM container, searches for a text node that includes the forbidden text,
   // and then removes that node and all of its following siblings.
   const beautifyHtml = (html) => {
@@ -40,7 +40,7 @@ const App = () => {
       let child = node.firstChild;
       while (child) {
         // If a text node contains the forbidden text, remove it and all subsequent siblings.
-        if (child.nodeType === Node.TEXT_NODE && child.textContent.includes("Posted in Uncategorized.")) {
+        if (child.nodeType === Node.TEXT_NODE && child.textContent.includes("Leave a Reply")) {
           while (child.nextSibling) {
             node.removeChild(child.nextSibling);
           }
@@ -49,7 +49,7 @@ const App = () => {
         }
         // If it's an element node, check its inner text.
         else if (child.nodeType === Node.ELEMENT_NODE) {
-          if (child.innerText && child.innerText.includes("Posted in Uncategorized.")) {
+          if (child.innerText && child.innerText.includes("Leave a Reply")) {
             // Remove this element and all siblings after it.
             let next = child.nextSibling;
             while (next) {
