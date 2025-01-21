@@ -17,7 +17,7 @@ const App = () => {
         if (result.data && result.data.length) {
           const processedData = result.data.map(item => ({
             ...item,
-            uniqueId: `${item.url}-${item.timestamp}`
+            uniqueId: item.complete_scrape_url
           }));
           const uniqueYears = [...new Set(processedData.map(item => item.year))].sort();
           setYears(uniqueYears);
@@ -33,7 +33,7 @@ const App = () => {
       url: item.url,
       date: item.date,
       key: item.uniqueId,
-      timestamp: item.timestamp
+      complete_scrape_url: item.complete_scrape_url
     });
     console.log('Currently selected:', selectedUrl);
     console.log('Will be selecting:', item.uniqueId);
