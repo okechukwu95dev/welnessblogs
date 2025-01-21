@@ -7,18 +7,12 @@ const App = () => {
   const [showTextExtractor, setShowTextExtractor] = React.useState(false);
   const [beautifiedContent, setBeautifiedContent] = React.useState('');
 
-  // Fetch CSV data on load
   React.useEffect(() => {
-    const csvUrl =
-      'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
-
+    const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
     fetch(csvUrl)
       .then(response => response.text())
       .then(csvText => {
-        const result = Papa.parse(csvText, {
-          header: true,
-          skipEmptyLines: true,
-        });
+        const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
         const processedData = result.data;
         const uniqueYears = [...new Set(processedData.map(item => item.year))].sort();
         setYears(uniqueYears);
@@ -28,67 +22,37 @@ const App = () => {
       .catch(console.error);
   }, []);
 
-  /**
-   * Updated beautify function:
-   * - Removes any <img> elements.
-   * - Looks for the first <div> whose text content (in any casing) includes "leave a reply" 
-   *   and then removes that div and all its following sibling elements (from its parent).
-   * - Logs and returns the plain text content from the cleaned-up HTML.
-   */
   const beautifyHtml = (html) => {
-    // Create a temporary DOM container
-    const temp = document.createElement('div');
-    temp.innerHTML = html;
-
-    // Remove all <img> elements from the HTML.
-    const imgs = temp.querySelectorAll('img');
-    imgs.forEach(img => img.parentNode.removeChild(img));
-
-    // Find the first <div> that contains "leave a reply" (case-insensitive).
-    const allDivs = temp.querySelectorAll('div');
-    let foundDiv = null;
-    for (let i = 0; i < allDivs.length; i++) {
-      if (allDivs[i].textContent.toLowerCase().includes("leave a reply")) {
-        foundDiv = allDivs[i];
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    
+    doc.querySelectorAll('img').forEach(img => img.remove());
+    
+    const allDivs = doc.querySelectorAll('div');
+    for (const div of allDivs) {
+      if (div.textContent.toLowerCase().includes('leave a reply')) {
+        let current = div;
+        while (current) {
+          const next = current.nextSibling;
+          current.remove();
+          current = next;
+        }
         break;
       }
     }
-
-    // If found, remove that div and all subsequent sibling elements of its parent.
-    if (foundDiv && foundDiv.parentElement) {
-      const parent = foundDiv.parentElement;
-      let remove = false;
-      // Convert HTMLCollection to an array to safely iterate over siblings
-      const siblings = Array.from(parent.children);
-      siblings.forEach(child => {
-        if (child === foundDiv) {
-          remove = true;
-          parent.removeChild(child);
-        } else if (remove) {
-          parent.removeChild(child);
-        }
-      });
-    }
-
-    // Extract the plain text content (with images and trimmed reply area removed)
-    const textContent = temp.textContent.trim();
-    console.log("Beautified Text Content:", textContent);
-    return textContent;
+    
+    return doc.body.textContent.trim();
   };
 
-  // Called when an item is selected from the left navigation.
   const handleUrlSelect = (item) => {
     setSelectedUrl(item.url);
-    // Reset beautified view when selecting a new item.
     setShowTextExtractor(false);
     setBeautifiedContent('');
   };
 
-  // Called when the "Beautify" button is clicked.
   const handleBeautify = () => {
     const currentItem = data.find(item => item.url === selectedUrl);
-    if (currentItem && currentItem.html_scraped) {
-      // Get only the plain text content from the HTML after processing:
+    if (currentItem?.html_scraped) {
       const cleanedText = beautifyHtml(currentItem.html_scraped);
       setBeautifiedContent(cleanedText);
       setShowTextExtractor(true);
@@ -98,10 +62,7 @@ const App = () => {
   if (loading) return React.createElement('div', null, 'Loading...');
 
   return React.createElement('div', { className: 'min-h-screen' },
-    // Main container: Left panel + Right panel
     React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
-      
-      // Left Navigation Panel
       React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
         React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
         years.map(year =>
@@ -131,10 +92,7 @@ const App = () => {
           )
         )
       ),
-
-      // Right Panel: Contains the original HTML and, optionally, the beautified (plain text) output.
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        // "Beautify" Button area (only shows if an item has been selected)
         React.createElement('div', { className: 'mb-4' },
           selectedUrl &&
             React.createElement('button', {
@@ -142,11 +100,9 @@ const App = () => {
               onClick: handleBeautify
             }, 'Beautify')
         ),
-        // Content area: displays the original HTML and if activated, the beautified plain text output.
         React.createElement('div', { className: 'flex-grow overflow-y-auto' },
           selectedUrl && data.find(item => item.url === selectedUrl)?.html_scraped &&
           React.createElement('div', { className: showTextExtractor ? 'md:flex' : '' },
-            // Original HTML Content Panel
             React.createElement('div', { className: showTextExtractor ? 'md:w-1/2 p-4 bg-white rounded shadow mr-2' : 'p-4 bg-white rounded shadow' },
               React.createElement('div', {
                 dangerouslySetInnerHTML: {
@@ -154,10 +110,8 @@ const App = () => {
                 }
               })
             ),
-            // Beautified Text Output Panel (only visible if "Beautify" has been clicked)
             showTextExtractor &&
             React.createElement('div', { className: 'md:w-1/2 p-4 bg-white rounded shadow ml-2' },
-              // Here we display the plain text content.
               React.createElement('pre', null, beautifiedContent)
             )
           )
