@@ -6,7 +6,7 @@ const App = () => {
   const [selectedUrl, setSelectedUrl] = React.useState(null);
 
   React.useEffect(() => {
-    const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
+    const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed_2.csv';
     fetch(csvUrl)
       .then(response => response.text())
       .then(csvText => {
