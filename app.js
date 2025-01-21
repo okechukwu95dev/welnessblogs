@@ -82,26 +82,7 @@ const App = () => {
           React.createElement('div', { className: 'p-4 bg-white rounded shadow' },
             React.createElement('div', {
               dangerouslySetInnerHTML: {
-                __html: (() => {
-                  const content = data.find(item => item.uniqueId === selectedUrl).html_scraped;
-                  const tempDiv = document.createElement('div');
-                  tempDiv.innerHTML = content;
-                  
-                  const replySection = Array.from(tempDiv.querySelectorAll('*')).find(el => 
-                    el.textContent.toLowerCase().includes('leave a reply')
-                  );
-                  
-                  if (replySection) {
-                    let current = replySection;
-                    while (current) {
-                      const next = current.nextSibling;
-                      current.remove();
-                      current = next;
-                    }
-                  }
-                  
-                  return tempDiv.innerHTML;
-                })()
+                __html: data.find(item => item.uniqueId === selectedUrl).html_scraped
               }
             })
           )
