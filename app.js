@@ -5,18 +5,15 @@ const App = () => {
   const [selectedYear, setSelectedYear] = React.useState(null);
   const [selectedUrl, setSelectedUrl] = React.useState(null);
   const [showTextExtractor, setShowTextExtractor] = React.useState(false);
+  const [processedHtml, setProcessedHtml] = React.useState('');
   const [extractedText, setExtractedText] = React.useState('');
 
   React.useEffect(() => {
     const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
-    
     fetch(csvUrl)
       .then(response => response.text())
       .then(csvText => {
-        const result = Papa.parse(csvText, { 
-          header: true, 
-          skipEmptyLines: true
-        });
+        const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
         const processedData = result.data;
         setYears([...new Set(processedData.map(item => item.year))].sort());
         setData(processedData);
@@ -25,23 +22,55 @@ const App = () => {
       .catch(console.error);
   }, []);
 
+  const wrapAllImages = (htmlString) => {
+    const temp = document.createElement('div');
+    temp.innerHTML = htmlString;
+    const elements = temp.querySelectorAll('img,[role="img"],[role="image"],[role="icon"]');
+    Array.from(elements).forEach(el => {
+      const alt = el.getAttribute('alt') || '';
+      const src = el.getAttribute('src') || '';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'image-block';
+      wrapper.style.border = '1px dashed #999';
+      wrapper.style.padding = '4px';
+      wrapper.style.margin = '4px 0';
+      const label = document.createElement('div');
+      label.style.fontSize = '0.85em';
+      label.style.color = '#666';
+      label.style.marginBottom = '3px';
+      label.innerHTML = `<strong>Image</strong> [alt="${alt}" src="${src.length > 50 ? src.slice(0, 50) + '...' : src}"]`;
+      wrapper.appendChild(label);
+      wrapper.appendChild(el.cloneNode(true));
+      el.parentNode.replaceChild(wrapper, el);
+    });
+    return temp.innerHTML;
+  };
+
   const extractText = (html) => {
     const temp = document.createElement('div');
     temp.innerHTML = html;
-    return temp.textContent || temp.innerText;
+    const text = temp.textContent || temp.innerText;
+    return text.replace(/\s+/g, ' ').trim();
   };
 
   const handleUrlSelect = (item) => {
     setSelectedUrl(item.url);
-    setExtractedText(extractText(item.html_scraped));
+    setProcessedHtml(wrapAllImages(item.html_scraped || ''));
+  };
+
+  const handleExtractText = () => {
+    const content = data.find(item => item.url === selectedUrl);
+    if (content) {
+      setExtractedText(extractText(content.html_scraped));
+      setShowTextExtractor(true);
+    }
   };
 
   if (loading) return React.createElement('div', null, 'Loading...');
 
   return React.createElement('div', { className: 'min-h-screen' },
-    // Navigation
     React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
-      // Left Panel
+      // Left Panel - Navigation
       React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
         React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
         years.map(year => 
@@ -72,26 +101,30 @@ const App = () => {
         )
       ),
       
-      // Right Panel
+      // Right Panel - Content and Extractor
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
+        // Actions
+        React.createElement('div', { className: 'mb-4 flex gap-2' },
+          React.createElement('button', {
+            className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+            onClick: handleExtractText
+          }, 'Extract Text'),
+          React.createElement('button', {
+            className: 'px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+            onClick: () => setShowTextExtractor(!showTextExtractor)
+          }, showTextExtractor ? 'Hide Extracted Text' : 'Show Extracted Text')
+        ),
+        
         // Content Area
         React.createElement('div', { 
           className: 'flex-grow overflow-y-auto mb-4 ' + (showTextExtractor ? 'h-2/3' : 'h-full')
         },
-          selectedUrl && data.find(item => item.url === selectedUrl)?.html_scraped &&
+          selectedUrl && 
             React.createElement('div', {
               className: 'p-4 bg-white rounded shadow',
-              dangerouslySetInnerHTML: { 
-                __html: data.find(item => item.url === selectedUrl).html_scraped 
-              }
+              dangerouslySetInnerHTML: { html: processedHtml }
             })
         ),
-        
-        // Text Extractor Toggle
-        React.createElement('button', {
-          className: 'mb-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
-          onClick: () => setShowTextExtractor(!showTextExtractor)
-        }, showTextExtractor ? 'Hide Text Extractor' : 'Show Text Extractor'),
         
         // Text Extractor Panel
         showTextExtractor && React.createElement('div', {
