@@ -22,9 +22,40 @@ const App = () => {
       .catch(console.error);
   }, []);
 
+  const fixEncodingIssues = (htmlString) => {
+    const replacements = [
+      { find: /â/g, replace: "'" },
+      { find: /â/g, replace: """ },
+      { find: /â/g, replace: """ },
+      { find: /â/g, replace: "–" },
+      { find: /Â/g, replace: "" },
+    ];
+  
+    let out = htmlString;
+    replacements.forEach((r) => {
+      out = out.replace(r.find, r.replace);
+    });
+    return out;
+  };
+
   const beautifyHtml = (html) => {
+    // Test case if no HTML provided
+    if (!html) {
+      html = `
+        <div>
+          <h1>Sample Blog Post</h1>
+          <p>This is a test paragraph with some â€™ encoding issues.</p>
+          <img src="test.jpg" alt="test image"/>
+          <div>Main content here</div>
+          <div>Leave a reply</div>
+          <div>Comment form</div>
+        </div>
+      `;
+    }
+
     const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
+    const fixedHtml = fixEncodingIssues(html);
+    const doc = parser.parseFromString(fixedHtml, 'text/html');
     
     doc.querySelectorAll('img').forEach(img => img.remove());
     
