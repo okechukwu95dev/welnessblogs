@@ -128,12 +128,7 @@ const App = () => {
       ),
       // Right Content Panel
       React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-        React.createElement('div', { className: 'mb-4' },
-          selectedUrl && React.createElement('button', {
-            className: 'px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600',
-            onClick: handleBeautify
-          }, 'Beautify')
-        ),
+       
         React.createElement('div', { className: 'flex-grow overflow-y-auto' },
           selectedUrl && data.find(item => item.url === selectedUrl)?.html_scraped &&
           React.createElement('div', { className: showTextExtractor ? 'md:flex space-x-4' : '' },
