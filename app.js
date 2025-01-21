@@ -6,130 +6,122 @@ const App = () => {
   const [selectedUrl, setSelectedUrl] = React.useState(null);
   const [showTextExtractor, setShowTextExtractor] = React.useState(false);
   const [extractedBlocks, setExtractedBlocks] = React.useState([]);
-  const [showEditModal, setShowEditModal] = React.useState(false);
-  const [currentEditBlock, setCurrentEditBlock] = React.useState(null);
-  const [changes, setChanges] = React.useState([]);
 
-  // ... (previous fetch and basic functions remain same)
+  React.useEffect(() => {
+    const csvUrl = 'https://raw.githubusercontent.com/okechukwu95dev/welnessblogs/main/scraped_html_non_media_unique_processed.csv';
+    fetch(csvUrl)
+      .then(response => response.text())
+      .then(csvText => {
+        const result = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+        const uniqueData = result.data.reduce((acc, curr) => {
+          const key = \`\${curr.url}_\${curr.date}\`;
+          if (!acc[key]) acc[key] = curr;
+          return acc;
+        }, {});
+        const processedData = Object.values(uniqueData);
+        setYears([...new Set(processedData.map(item => item.year))].sort());
+        setData(processedData);
+        setLoading(false);
+      })
+      .catch(console.error);
+  }, []);
 
   const extractTextBlocks = (html) => {
     const temp = document.createElement('div');
     temp.innerHTML = html;
     const blocks = [];
-    
-    const processNode = (node, depth = 0) => {
-      if (node.nodeType === 3 && node.textContent.trim()) { // Text node
-        blocks.push({
-          id: Math.random().toString(36).substr(2, 9),
-          text: node.textContent.trim(),
-          path: getNodePath(node),
-          depth,
-          original: node.textContent
-        });
-      }
-      node.childNodes.forEach(child => processNode(child, depth + 1));
-    };
+    const colors = ['#FFE4E1', '#E6E6FA', '#F0FFF0', '#FFF0F5', '#F5F5DC'];
+    let colorIndex = 0;
 
-    const getNodePath = (node) => {
-      const path = [];
-      let current = node;
-      while (current.parentNode) {
-        const index = Array.from(current.parentNode.childNodes).indexOf(current);
-        path.unshift(index);
-        current = current.parentNode;
+    const processNode = (node) => {
+      if (node.nodeType === Node.ELEMENT_NODE && node.textContent.trim()) {
+        const textContent = node.textContent.trim();
+        if (textContent) {
+          blocks.push({
+            id: \`block_\${Math.random()}\`,
+            text: textContent,
+            color: colors[colorIndex % colors.length]
+          });
+          colorIndex++;
+        }
       }
-      return path.join('-');
+      node.childNodes.forEach(child => processNode(child));
     };
 
     processNode(temp);
     setExtractedBlocks(blocks);
+    setShowTextExtractor(true);
   };
 
-  const handleEdit = (block) => {
-    setCurrentEditBlock(block);
-    setShowEditModal(true);
-  };
-
-  const saveEdit = (newText) => {
-    const change = {
-      timestamp: new Date().toISOString(),
-      blockId: currentEditBlock.id,
-      original: currentEditBlock.original,
-      updated: newText
-    };
-    setChanges([...changes, change]);
-    
-    setExtractedBlocks(blocks => 
-      blocks.map(b => b.id === currentEditBlock.id ? {...b, text: newText} : b)
-    );
-    setShowEditModal(false);
-  };
+  if (loading) return React.createElement('div', null, 'Loading...');
 
   return React.createElement('div', { className: 'min-h-screen' },
-    // ... (previous navigation structure)
-    
-    // Content Panel
-    React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
-      React.createElement('button', {
-        className: 'mb-4 px-4 py-2 bg-blue-500 text-white rounded',
-        onClick: () => {
-          const content = data.find(item => item.url === selectedUrl);
-          if (content) extractTextBlocks(content.html_scraped);
-          setShowTextExtractor(true);
-        }
-      }, 'Extract Text Blocks'),
-
-      // Original Content
-      React.createElement('div', {
-        className: 'flex-grow overflow-y-auto mb-4',
-        dangerouslySetInnerHTML: { 
-          __html: selectedUrl ? data.find(item => item.url === selectedUrl)?.html_scraped : ''
-        }
-      }),
-
-      // Extracted Blocks
-      showTextExtractor && React.createElement('div', {
-        className: 'h-1/2 overflow-y-auto border rounded p-4'
-      },
-        extractedBlocks.map(block => 
-          React.createElement('div', {
-            key: block.id,
-            className: 'mb-4 p-2 border rounded',
-            style: {
-              marginLeft: `${block.depth * 20}px`,
-              borderColor: `hsl(${block.depth * 60}, 70%, 60%)`
-            }
-          },
-            React.createElement('div', { className: 'mb-2' }, block.text),
+    React.createElement('div', { className: 'flex flex-col md:flex-row h-screen' },
+      // Left Panel
+      React.createElement('div', { className: 'w-full md:w-1/4 p-4 border-r overflow-y-auto bg-gray-50' },
+        React.createElement('h1', { className: 'text-2xl mb-4 font-bold' }, 'Wellness Blogs'),
+        years.map(year => 
+          React.createElement('div', { key: year, className: 'mb-2' },
             React.createElement('button', {
-              className: 'px-2 py-1 bg-gray-200 rounded text-sm',
-              onClick: () => handleEdit(block)
-            }, 'Edit')
+              className: 'w-full text-left p-2 bg-white rounded shadow hover:bg-gray-100 flex justify-between items-center',
+              onClick: () => setSelectedYear(selectedYear === year ? null : year)
+            },
+              React.createElement('span', null, year),
+              React.createElement('span', null, selectedYear === year ? '▼' : '▶')
+            ),
+            selectedYear === year && 
+              React.createElement('div', { className: 'ml-4 mt-2 space-y-2' },
+                data.filter(item => item.year === year)
+                    .map((item, index) => 
+                      React.createElement('button', {
+                        key: \`\${item.url}_\${index}\`,
+                        className: 'w-full text-left p-2 text-sm bg-white rounded hover:bg-blue-50 ' + 
+                                 (selectedUrl === item.url ? 'bg-blue-100' : ''),
+                        onClick: () => {
+                          setSelectedUrl(item.url);
+                          setShowTextExtractor(false);
+                        }
+                      },
+                        React.createElement('div', { className: 'font-medium' }, item.date),
+                        React.createElement('div', { className: 'text-xs text-gray-600 truncate' }, item.url)
+                      )
+                    )
+              )
           )
         )
-      )
-    ),
+      ),
+      
+      // Right Panel
+      React.createElement('div', { className: 'w-full md:w-3/4 p-4 flex flex-col' },
+        // Extract Text Button
+        React.createElement('button', {
+          className: 'mb-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600',
+          onClick: () => {
+            const content = data.find(item => item.url === selectedUrl);
+            if (content) extractTextBlocks(content.html_scraped);
+          }
+        }, 'Extract Text Blocks'),
 
-    // Edit Modal
-    showEditModal && React.createElement('div', {
-      className: 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center'
-    },
-      React.createElement('div', { className: 'bg-white p-4 rounded max-w-lg w-full' },
-        React.createElement('textarea', {
-          className: 'w-full h-32 mb-4 p-2 border rounded',
-          defaultValue: currentEditBlock?.text,
-          id: 'editText'
-        }),
-        React.createElement('div', { className: 'flex justify-end gap-2' },
-          React.createElement('button', {
-            className: 'px-4 py-2 bg-gray-200 rounded',
-            onClick: () => setShowEditModal(false)
-          }, 'Cancel'),
-          React.createElement('button', {
-            className: 'px-4 py-2 bg-blue-500 text-white rounded',
-            onClick: () => saveEdit(document.getElementById('editText').value)
-          }, 'Save')
-        )
+        // Content Display
+        !showTextExtractor && selectedUrl && 
+          React.createElement('div', {
+            className: 'flex-grow overflow-y-auto',
+            dangerouslySetInnerHTML: { 
+              __html: data.find(item => item.url === selectedUrl)?.html_scraped 
+            }
+          }),
+
+        // Extracted Blocks Display
+        showTextExtractor && 
+          React.createElement('div', { className: 'flex-grow overflow-y-auto' },
+            extractedBlocks.map(block => 
+              React.createElement('div', {
+                key: block.id,
+                className: 'p-4 mb-4 rounded shadow',
+                style: { backgroundColor: block.color }
+              }, block.text)
+            )
+          )
       )
     )
   );
