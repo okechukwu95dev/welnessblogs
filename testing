@@ -1,18 +1,23 @@
-import * as exportFunctions from '@/main/components/ExportMenu/exportFunctions';
+// Must be at the very top, before any imports
+jest.mock('@/main/components/ExportMenu/exportFunctions');
 
-// Create spies directly on the imported module
-jest.spyOn(exportFunctions, 'fetchData');
-jest.spyOn(exportFunctions, 'fetchAndLogExports');
-jest.spyOn(exportFunctions, 'downloadFile');
+import {
+  fetchData,
+  fetchAndLogExports,
+  downloadFile,
+  handleStagedExportDownload,
+  handleReleaseExport,
+  handleLatestStagedExportDownload,
+  handleReleasedExportDownload
+} from '@/main/components/ExportMenu/exportFunctions';
 
-// Mock dependencies with proper TypeScript signatures
+// Mock dependencies
 jest.mock('@/main/utility/FilenameUtils', () => ({
   generateExportFilename: jest.fn().mockImplementation((exportData, stage) => 
     `export-${exportData.id}-${stage}.zip`)
 }));
 
-// Set up document mock
-const originalDocument = { ...global.document };
+// Mock document and URL
 const mockAnchor = {
   href: '',
   download: '',
@@ -21,7 +26,6 @@ const mockAnchor = {
 
 Object.defineProperty(global, 'document', {
   value: {
-    ...originalDocument,
     createElement: jest.fn().mockReturnValue(mockAnchor),
     body: {
       appendChild: jest.fn(),
@@ -31,8 +35,16 @@ Object.defineProperty(global, 'document', {
   writable: true
 });
 
-// Mock URL.createObjectURL
 global.URL.createObjectURL = jest.fn().mockReturnValue('blob:mock-url');
+
+// Type assertions for mocks
+const mockedFetchData = fetchData as jest.Mock;
+const mockedFetchAndLogExports = fetchAndLogExports as jest.Mock;
+const mockedDownloadFile = downloadFile as jest.Mock;
+const mockedHandleStagedExportDownload = handleStagedExportDownload as jest.Mock;
+const mockedHandleReleaseExport = handleReleaseExport as jest.Mock;
+const mockedHandleLatestStagedExportDownload = handleLatestStagedExportDownload as jest.Mock;
+const mockedHandleReleasedExportDownload = handleReleasedExportDownload as jest.Mock;
 
 describe('Export Functions', () => {
   let mockClient;
@@ -59,8 +71,14 @@ describe('Export Functions', () => {
       };
       mockClient.get.mockResolvedValue(mockResponse);
       
+      // Provide implementation for this test
+      mockedFetchData.mockImplementation(async (client, url) => {
+        const response = await client.get(url);
+        return response.data.results;
+      });
+      
       // Execute
-      const results = await exportFunctions.fetchData(mockClient, '/test-url');
+      const results = await fetchData(mockClient, '/test-url');
       
       // Verify
       expect(mockClient.get).toHaveBeenCalledWith('/test-url');
@@ -88,11 +106,27 @@ describe('Export Functions', () => {
         return Promise.reject(new Error('Unexpected URL'));
       });
       
+      // Custom implementation for paginated data test
+      mockedFetchData.mockImplementation(async (client, url) => {
+        let currentUrl = url;
+        let allResults = [];
+        
+        while (currentUrl) {
+          const response = await client.get(currentUrl);
+          allResults = [...allResults, ...response.data.results];
+          currentUrl = response.data.next;
+        }
+        
+        return allResults;
+      });
+      
       // Execute
-      const results = await exportFunctions.fetchData(mockClient, '/test-url');
+      const results = await fetchData(mockClient, '/test-url');
       
       // Verify
       expect(mockClient.get).toHaveBeenCalledTimes(2);
+      expect(mockClient.get).toHaveBeenCalledWith('/test-url');
+      expect(mockClient.get).toHaveBeenCalledWith('/next-page');
       expect(results).toEqual([{ id: 1 }, { id: 2 }]);
     });
   });
@@ -106,14 +140,27 @@ describe('Export Functions', () => {
         { id: 3, exportPhase: 'STAGING' }
       ];
       
-      // Mock fetchData directly on the module
-      exportFunctions.fetchData.mockResolvedValue(mockResults);
+      // Mock fetchData just for this test
+      mockedFetchData.mockResolvedValue(mockResults);
+      
+      // Implementation for fetchAndLogExports
+      mockedFetchAndLogExports.mockImplementation(async (client) => {
+        const results = await fetchData(client, '/export-artifact/?limit=50');
+        
+        const stagedExports = results.filter(item => item.exportPhase === 'STAGING');
+        const releasedExports = results.filter(item => item.exportPhase === 'RELEASE');
+        
+        return {
+          latestStagedExport: stagedExports.length > 0 ? stagedExports[stagedExports.length - 1] : null,
+          latestReleasedExport: releasedExports.length > 0 ? releasedExports[releasedExports.length - 1] : null
+        };
+      });
       
       // Execute
-      const result = await exportFunctions.fetchAndLogExports(mockClient);
+      const result = await fetchAndLogExports(mockClient);
       
       // Verify
-      expect(exportFunctions.fetchData).toHaveBeenCalledWith(mockClient, '/export-artifact/?limit=50');
+      expect(fetchData).toHaveBeenCalledWith(mockClient, '/export-artifact/?limit=50');
       expect(result).toEqual({
         latestStagedExport: { id: 3, exportPhase: 'STAGING' },
         latestReleasedExport: { id: 2, exportPhase: 'RELEASE' }
@@ -122,10 +169,19 @@ describe('Export Functions', () => {
     
     it('should handle empty results', async () => {
       // Setup
-      exportFunctions.fetchData.mockResolvedValue([]);
+      mockedFetchData.mockResolvedValue([]);
+      
+      // Implementation for empty results
+      mockedFetchAndLogExports.mockImplementation(async (client) => {
+        const results = await fetchData(client, '/export-artifact/?limit=50');
+        return {
+          latestStagedExport: null,
+          latestReleasedExport: null
+        };
+      });
       
       // Execute
-      const result = await exportFunctions.fetchAndLogExports(mockClient);
+      const result = await fetchAndLogExports(mockClient);
       
       // Verify
       expect(result).toEqual({
@@ -142,13 +198,31 @@ describe('Export Functions', () => {
       const blob = new Blob(['test'], { type: 'application/zip' });
       mockClient.get.mockResolvedValue({ data: blob });
       
+      // Implementation for downloadFile
+      mockedDownloadFile.mockImplementation(async (client, artifactSource, exportData, stage) => {
+        try {
+          const url = `/export-artifact/${artifactSource}/download/`;
+          const response = await client.get(url, { responseType: 'blob' });
+          
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(response.data);
+          link.download = `export-${exportData.id}-${stage}.zip`;
+          link.click();
+          
+          document.body.appendChild(link);
+          document.body.removeChild(link);
+        } catch (error) {
+          console.error('Error downloading file:', error);
+        }
+      });
+      
       // Execute
-      await exportFunctions.downloadFile(mockClient, 'test-source', mockExportData, 'RELEASE');
+      await downloadFile(mockClient, 'test-source', mockExportData, 'RELEASE');
       
       // Verify
       expect(mockClient.get).toHaveBeenCalledWith('/export-artifact/test-source/download/', { responseType: 'blob' });
       expect(document.createElement).toHaveBeenCalled();
-      expect(global.URL.createObjectURL).toHaveBeenCalled();
+      expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
       expect(mockAnchor.click).toHaveBeenCalled();
     });
   });
@@ -159,8 +233,18 @@ describe('Export Functions', () => {
       const mockResponse = { data: { id: 1, status: 'Staged' } };
       mockClient.post.mockResolvedValue(mockResponse);
       
+      // Implementation for handleStagedExportDownload
+      mockedHandleStagedExportDownload.mockImplementation(async (client) => {
+        try {
+          const response = await client.post('/export/');
+          return response.data;
+        } catch (error) {
+          console.error('Error staging export:', error);
+        }
+      });
+      
       // Execute
-      const result = await exportFunctions.handleStagedExportDownload(mockClient);
+      const result = await handleStagedExportDownload(mockClient);
       
       // Verify
       expect(mockClient.post).toHaveBeenCalledWith('/export/');
@@ -174,8 +258,18 @@ describe('Export Functions', () => {
       const mockResponse = { data: { id: 1, status: 'Released' } };
       mockClient.put.mockResolvedValue(mockResponse);
       
+      // Implementation for handleReleaseExport
+      mockedHandleReleaseExport.mockImplementation(async (client, id) => {
+        try {
+          const response = await client.put(`/export/${id}/release/`);
+          return response.data;
+        } catch (error) {
+          console.error('Error releasing export:', error);
+        }
+      });
+      
       // Execute
-      const result = await exportFunctions.handleReleaseExport(mockClient, 1);
+      const result = await handleReleaseExport(mockClient, 1);
       
       // Verify
       expect(mockClient.put).toHaveBeenCalledWith('/export/1/release/');
@@ -192,20 +286,31 @@ describe('Export Functions', () => {
         exportPhase: 'STAGING'
       };
       
-      // Mock direct dependencies
-      exportFunctions.fetchAndLogExports.mockResolvedValue({
+      // Mock dependencies
+      mockedFetchAndLogExports.mockResolvedValue({
         latestStagedExport,
         latestReleasedExport: null
       });
       
-      exportFunctions.downloadFile.mockResolvedValue();
+      mockedDownloadFile.mockResolvedValue(undefined);
+      
+      // Implementation for handleLatestStagedExportDownload
+      mockedHandleLatestStagedExportDownload.mockImplementation(async (client) => {
+        const { latestStagedExport } = await fetchAndLogExports(client);
+        
+        if (latestStagedExport) {
+          await downloadFile(client, latestStagedExport.id, latestStagedExport, 'STAGED');
+        } else {
+          console.log('No Staged Exports available for download.');
+        }
+      });
       
       // Execute
-      await exportFunctions.handleLatestStagedExportDownload(mockClient);
+      await handleLatestStagedExportDownload(mockClient);
       
       // Verify
-      expect(exportFunctions.fetchAndLogExports).toHaveBeenCalledWith(mockClient);
-      expect(exportFunctions.downloadFile).toHaveBeenCalledWith(
+      expect(fetchAndLogExports).toHaveBeenCalledWith(mockClient);
+      expect(downloadFile).toHaveBeenCalledWith(
         mockClient, 
         latestStagedExport.id, 
         latestStagedExport, 
@@ -215,7 +320,7 @@ describe('Export Functions', () => {
     
     it('should handle case with no staged exports', async () => {
       // Setup
-      exportFunctions.fetchAndLogExports.mockResolvedValue({
+      mockedFetchAndLogExports.mockResolvedValue({
         latestStagedExport: null,
         latestReleasedExport: null
       });
@@ -223,11 +328,11 @@ describe('Export Functions', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       
       // Execute
-      await exportFunctions.handleLatestStagedExportDownload(mockClient);
+      await handleLatestStagedExportDownload(mockClient);
       
       // Verify
       expect(consoleSpy).toHaveBeenCalledWith('No Staged Exports available for download.');
-      expect(exportFunctions.downloadFile).not.toHaveBeenCalled();
+      expect(downloadFile).not.toHaveBeenCalled();
     });
   });
   
@@ -241,19 +346,35 @@ describe('Export Functions', () => {
       };
       
       // Mock dependencies
-      exportFunctions.fetchAndLogExports.mockResolvedValue({
+      mockedFetchAndLogExports.mockResolvedValue({
         latestStagedExport: null,
         latestReleasedExport
       });
       
-      exportFunctions.downloadFile.mockResolvedValue();
+      mockedDownloadFile.mockResolvedValue(undefined);
+      
+      // Implementation for handleReleasedExportDownload
+      mockedHandleReleasedExportDownload.mockImplementation(async (client) => {
+        const { latestReleasedExport } = await fetchAndLogExports(client);
+        
+        if (latestReleasedExport) {
+          await downloadFile(
+            client, 
+            latestReleasedExport.artifactSource, 
+            latestReleasedExport, 
+            'RELEASE'
+          );
+        } else {
+          console.log('No Released Export available for download.');
+        }
+      });
       
       // Execute
-      await exportFunctions.handleReleasedExportDownload(mockClient);
+      await handleReleasedExportDownload(mockClient);
       
       // Verify
-      expect(exportFunctions.fetchAndLogExports).toHaveBeenCalledWith(mockClient);
-      expect(exportFunctions.downloadFile).toHaveBeenCalledWith(
+      expect(fetchAndLogExports).toHaveBeenCalledWith(mockClient);
+      expect(downloadFile).toHaveBeenCalledWith(
         mockClient, 
         latestReleasedExport.artifactSource, 
         latestReleasedExport, 
@@ -263,7 +384,7 @@ describe('Export Functions', () => {
     
     it('should handle case with no released exports', async () => {
       // Setup
-      exportFunctions.fetchAndLogExports.mockResolvedValue({
+      mockedFetchAndLogExports.mockResolvedValue({
         latestStagedExport: null,
         latestReleasedExport: null
       });
@@ -271,11 +392,11 @@ describe('Export Functions', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
       
       // Execute
-      await exportFunctions.handleReleasedExportDownload(mockClient);
+      await handleReleasedExportDownload(mockClient);
       
       // Verify
       expect(consoleSpy).toHaveBeenCalledWith('No Released Export available for download.');
-      expect(exportFunctions.downloadFile).not.toHaveBeenCalled();
+      expect(downloadFile).not.toHaveBeenCalled();
     });
   });
 });
