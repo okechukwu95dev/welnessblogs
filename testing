@@ -1,0 +1,340 @@
+import { 
+  fetchData, 
+  fetchAndLogExports, 
+  downloadFile,
+  handleStagedExportDownload,
+  handleReleaseExport,
+  handleLatestStagedExportDownload,
+  handleReleasedExportDownload
+} from '@/main/components/ExportMenu/exportFunctions';
+
+// Mock dependencies
+jest.mock('@/main/utility/FilenameUtils', () => ({
+  generateExportFilename: jest.fn((exportData, stage) => `export-${exportData.id}-${stage}.zip`)
+}));
+
+// Mock document functions
+global.document = {
+  ...global.document,
+  createElement: jest.fn(() => ({
+    href: '',
+    download: '',
+    click: jest.fn(),
+    appendChild: jest.fn()
+  })),
+  body: {
+    appendChild: jest.fn(),
+    removeChild: jest.fn()
+  }
+};
+
+// Mock URL.createObjectURL
+global.URL.createObjectURL = jest.fn(() => 'blob:mock-url');
+
+describe('Export Functions', () => {
+  let mockClient;
+  
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Create a mock client for all tests
+    mockClient = {
+      get: jest.fn(),
+      post: jest.fn(),
+      put: jest.fn()
+    };
+  });
+  
+  describe('fetchData', () => {
+    it('should fetch data from URL and return results', async () => {
+      // Setup
+      const mockResponse = { 
+        data: { 
+          results: [{ id: 1 }, { id: 2 }],
+          next: null 
+        } 
+      };
+      mockClient.get.mockResolvedValue(mockResponse);
+      
+      // Execute
+      const results = await fetchData(mockClient, '/test-url');
+      
+      // Verify
+      expect(mockClient.get).toHaveBeenCalledWith('/test-url');
+      expect(results).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+    
+    it('should handle paginated data', async () => {
+      // Setup
+      const mockResponse1 = { 
+        data: { 
+          results: [{ id: 1 }],
+          next: '/next-page' 
+        } 
+      };
+      const mockResponse2 = { 
+        data: { 
+          results: [{ id: 2 }],
+          next: null 
+        } 
+      };
+      
+      mockClient.get.mockImplementation((url) => {
+        if (url === '/test-url') return Promise.resolve(mockResponse1);
+        if (url === '/next-page') return Promise.resolve(mockResponse2);
+        return Promise.reject(new Error('Unexpected URL'));
+      });
+      
+      // Execute
+      const results = await fetchData(mockClient, '/test-url');
+      
+      // Verify
+      expect(mockClient.get).toHaveBeenCalledTimes(2);
+      expect(mockClient.get).toHaveBeenCalledWith('/test-url');
+      expect(mockClient.get).toHaveBeenCalledWith('/next-page');
+      expect(results).toEqual([{ id: 1 }, { id: 2 }]);
+    });
+    
+    it('should handle errors', async () => {
+      // Setup
+      const mockError = new Error('Network error');
+      mockClient.get.mockRejectedValue(mockError);
+      
+      // Execute & Verify
+      const results = await fetchData(mockClient, '/test-url');
+      
+      expect(mockClient.get).toHaveBeenCalledWith('/test-url');
+      expect(results).toEqual([]);
+    });
+  });
+  
+  describe('fetchAndLogExports', () => {
+    it('should fetch and filter exports', async () => {
+      // Setup
+      const mockResults = [
+        { id: 1, exportPhase: 'STAGING' },
+        { id: 2, exportPhase: 'RELEASE' },
+        { id: 3, exportPhase: 'STAGING' }
+      ];
+      
+      // Mock fetchData to return our test data
+      jest.spyOn(global, 'fetchData').mockResolvedValue(mockResults);
+      
+      // Execute
+      const result = await fetchAndLogExports(mockClient);
+      
+      // Verify
+      expect(fetchData).toHaveBeenCalledWith(mockClient, '/export-artifact/?limit=50');
+      expect(result).toEqual({
+        latestStagedExport: { id: 3, exportPhase: 'STAGING' },
+        latestReleasedExport: { id: 2, exportPhase: 'RELEASE' }
+      });
+    });
+    
+    it('should handle empty results', async () => {
+      // Setup
+      jest.spyOn(global, 'fetchData').mockResolvedValue([]);
+      
+      // Execute
+      const result = await fetchAndLogExports(mockClient);
+      
+      // Verify
+      expect(result).toEqual({
+        latestStagedExport: null,
+        latestReleasedExport: null
+      });
+    });
+  });
+  
+  describe('downloadFile', () => {
+    it('should download a file', async () => {
+      // Setup
+      const mockExportData = { id: 1, artifactSource: 'test-source' };
+      const blob = new Blob(['test'], { type: 'application/zip' });
+      mockClient.get.mockResolvedValue({ data: blob });
+      
+      // Execute
+      await downloadFile(mockClient, 'test-source', mockExportData, 'RELEASE');
+      
+      // Verify
+      expect(mockClient.get).toHaveBeenCalledWith('/export-artifact/test-source/download/', { responseType: 'blob' });
+      expect(document.createElement).toHaveBeenCalledWith('a');
+      expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
+      
+      // Check link properties and click
+      const mockLink = document.createElement();
+      expect(mockLink.href).toBe('blob:mock-url');
+      expect(mockLink.download).toBe('export-1-RELEASE.zip');
+      expect(mockLink.click).toHaveBeenCalled();
+      
+      // Check cleanup
+      expect(document.body.appendChild).toHaveBeenCalledWith(mockLink);
+      expect(document.body.removeChild).toHaveBeenCalledWith(mockLink);
+    });
+    
+    it('should handle errors', async () => {
+      // Setup
+      const mockError = new Error('Download error');
+      mockClient.get.mockRejectedValue(mockError);
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      
+      // Execute
+      await downloadFile(mockClient, 'test-source', { id: 1 }, 'STAGING');
+      
+      // Verify
+      expect(consoleSpy).toHaveBeenCalledWith('Error downloading file:', mockError);
+    });
+  });
+  
+  describe('handleStagedExportDownload', () => {
+    it('should post to /export/ endpoint and return data', async () => {
+      // Setup
+      const mockResponse = { data: { id: 1, status: 'Staged' } };
+      mockClient.post.mockResolvedValue(mockResponse);
+      
+      // Execute
+      const result = await handleStagedExportDownload(mockClient);
+      
+      // Verify
+      expect(mockClient.post).toHaveBeenCalledWith('/export/');
+      expect(result).toEqual({ id: 1, status: 'Staged' });
+    });
+    
+    it('should handle errors', async () => {
+      // Setup
+      const mockError = new Error('Staging error');
+      mockClient.post.mockRejectedValue(mockError);
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      
+      // Execute
+      await handleStagedExportDownload(mockClient);
+      
+      // Verify
+      expect(consoleSpy).toHaveBeenCalledWith('Error staging export:', mockError);
+    });
+  });
+  
+  describe('handleReleaseExport', () => {
+    it('should put to /export/{id}/release/ endpoint and return data', async () => {
+      // Setup
+      const mockResponse = { data: { id: 1, status: 'Released' } };
+      mockClient.put.mockResolvedValue(mockResponse);
+      
+      // Execute
+      const result = await handleReleaseExport(mockClient, 1);
+      
+      // Verify
+      expect(mockClient.put).toHaveBeenCalledWith('/export/1/release/');
+      expect(result).toEqual({ id: 1, status: 'Released' });
+    });
+    
+    it('should handle errors', async () => {
+      // Setup
+      const mockError = new Error('Release error');
+      mockClient.put.mockRejectedValue(mockError);
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      
+      // Execute
+      await handleReleaseExport(mockClient, 1);
+      
+      // Verify
+      expect(consoleSpy).toHaveBeenCalledWith('Error releasing export:', mockError);
+    });
+  });
+  
+  describe('handleLatestStagedExportDownload', () => {
+    it('should download the latest staged export', async () => {
+      // Setup
+      const latestStagedExport = { 
+        id: 1, 
+        artifactSource: 'test-source',
+        exportPhase: 'STAGING'
+      };
+      
+      // Mock fetchAndLogExports
+      jest.spyOn(global, 'fetchAndLogExports').mockResolvedValue({
+        latestStagedExport,
+        latestReleasedExport: null
+      });
+      
+      // Mock downloadFile
+      jest.spyOn(global, 'downloadFile').mockResolvedValue();
+      
+      // Execute
+      await handleLatestStagedExportDownload(mockClient);
+      
+      // Verify
+      expect(fetchAndLogExports).toHaveBeenCalledWith(mockClient);
+      expect(downloadFile).toHaveBeenCalledWith(
+        mockClient, 
+        latestStagedExport.id, 
+        latestStagedExport, 
+        'STAGED'
+      );
+    });
+    
+    it('should handle case with no staged exports', async () => {
+      // Setup
+      jest.spyOn(global, 'fetchAndLogExports').mockResolvedValue({
+        latestStagedExport: null,
+        latestReleasedExport: null
+      });
+      
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      
+      // Execute
+      await handleLatestStagedExportDownload(mockClient);
+      
+      // Verify
+      expect(consoleSpy).toHaveBeenCalledWith('No Staged Exports available for download.');
+    });
+  });
+  
+  describe('handleReleasedExportDownload', () => {
+    it('should download the latest released export', async () => {
+      // Setup
+      const latestReleasedExport = { 
+        id: 2, 
+        artifactSource: 'test-source',
+        exportPhase: 'RELEASE'
+      };
+      
+      // Mock fetchAndLogExports
+      jest.spyOn(global, 'fetchAndLogExports').mockResolvedValue({
+        latestStagedExport: null,
+        latestReleasedExport
+      });
+      
+      // Mock downloadFile
+      jest.spyOn(global, 'downloadFile').mockResolvedValue();
+      
+      // Execute
+      await handleReleasedExportDownload(mockClient);
+      
+      // Verify
+      expect(fetchAndLogExports).toHaveBeenCalledWith(mockClient);
+      expect(downloadFile).toHaveBeenCalledWith(
+        mockClient, 
+        latestReleasedExport.artifactSource, 
+        latestReleasedExport, 
+        'RELEASE'
+      );
+    });
+    
+    it('should handle case with no released exports', async () => {
+      // Setup
+      jest.spyOn(global, 'fetchAndLogExports').mockResolvedValue({
+        latestStagedExport: null,
+        latestReleasedExport: null
+      });
+      
+      const consoleSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      
+      // Execute
+      await handleReleasedExportDownload(mockClient);
+      
+      // Verify
+      expect(consoleSpy).toHaveBeenCalledWith('No Released Export available for download.');
+    });
+  });
+});
