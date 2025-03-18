@@ -1,253 +1,40 @@
-from PIL import Image, ImageDraw, ImageFont
-import os
+from django.apps import apps
+from rest_framework.views import APIView
+from rest_framework.response import Response
 
-def main():
-    # Read draft.py as text
-    with open('draft.py', 'r') as f:
-        content = f.read()
-    
-    # Extract model information manually
-    class_info = []
-    current_class = None
-    lines = content.split('\n')
-    
-    for line in lines:
-        stripped = line.strip()
-        
-        # Detect class definition
-        if stripped.startswith('class ') and '(' in stripped and ':' in stripped:
-            class_name = stripped[6:stripped.find('(')].strip()
+class ModelDiagramAPIView(APIView):
+    def get(self, request):
+        all_models_info = []
+
+        # Loop over all models in your app (adjust 'your_app_name' if needed)
+        for model in apps.get_app_config('your_app_name').get_models():
+            model_name = model.__name__
             
-            # Skip Audit and Version classes
-            if class_name == 'Audit' or class_name == 'Version' or class_name.endswith('Audit') or class_name.endswith('Version'):
-                current_class = None
-                continue
-                
-            base_classes = stripped[stripped.find('(')+1:stripped.find(')')].strip()
-            
-            # Check if it's a model class
-            if 'DraftEntity' in base_classes or 'models.Model' in base_classes:
-                current_class = {
-                    'name': class_name,
-                    'fields': []
-                }
-                class_info.append(current_class)
-        
-        # Inside a class definition, look for fields
-        elif current_class is not None and '=' in stripped and not stripped.startswith(('def', 'class', '#')):
-            # Extract field information
-            field_name = stripped.split('=')[0].strip()
-            field_def = stripped.split('=', 1)[1].strip()
-            
-            # Skip meta fields
-            if field_name in ['model_name', 'Meta', 'objects', 'class']:
-                continue
-                
-            # Determine field type
-            field_type = 'Field'
-            is_primary = 'primary_key=True' in field_def
-            is_relation = any(rel in field_def for rel in ['ForeignKey', 'OneToOneField', 'ManyToManyField'])
-            related_model = None
-            
-            if 'CharField' in field_def or 'TextField' in field_def:
-                field_type = 'CharField'
-            elif 'IntegerField' in field_def or 'DecimalField' in field_def:
-                field_type = 'IntegerField'
-            elif 'DateTimeField' in field_def or 'DateField' in field_def:
-                field_type = 'DateTimeField'
-            elif 'BooleanField' in field_def:
-                field_type = 'BooleanField'
-            elif is_relation:
-                # Try to extract related model
-                if 'ManyToManyField' in field_def:
-                    field_type = 'ManyToManyField'
-                elif 'OneToOneField' in field_def:
-                    field_type = 'OneToOneField'
+            fields_data = []
+            relationships_data = []
+
+            # Loop over all fields in this model
+            for field in model._meta.get_fields():
+                # If it's a relationship field (ForeignKey, ManyToMany, OneToOne, etc.)
+                if field.is_relation and field.related_model:
+                    # Example: store as an "edge" or "relationship"
+                    relationships_data.append({
+                        "field_name": field.name,
+                        "relationship_type": type(field).__name__,   # e.g. 'ForeignKey'
+                        "related_model": field.related_model.__name__  # e.g. 'FundingConfiguration'
+                    })
                 else:
-                    field_type = 'ForeignKey'
-                    
-                # Extract related model name
-                if '(' in field_def and ')' in field_def:
-                    rel_part = field_def.split('(', 1)[1].split(')', 1)[0]
-                    if ',' in rel_part:
-                        rel_model = rel_part.split(',')[0].strip()
-                    else:
-                        rel_model = rel_part.strip()
-                    
-                    # Remove quotes if present
-                    if rel_model.startswith(("'", '"')) and rel_model.endswith(("'", '"')):
-                        rel_model = rel_model[1:-1]
-                        
-                    related_model = rel_model
-                    
-            current_class['fields'].append({
-                'name': field_name,
-                'type': field_type,
-                'primary_key': is_primary,
-                'is_relation': is_relation,
-                'related_model': related_model
+                    # Otherwise, treat it as a normal field
+                    fields_data.append({
+                        "field_name": field.name,
+                        "field_type": field.get_internal_type()  # e.g. 'CharField', 'BooleanField'
+                    })
+
+            # Build up the info for this model
+            all_models_info.append({
+                "model_name": model_name,
+                "fields": fields_data,
+                "relationships": relationships_data
             })
-    
-    # Now create the diagram
-    img_width = 2000
-    img_height = 1500
-    bg_color = (255, 255, 255)
-    img = Image.new('RGB', (img_width, img_height), bg_color)
-    draw = ImageDraw.Draw(img)
-    
-    # Load font
-    font_size = 14
-    try:
-        font = ImageFont.truetype("arial.ttf", font_size)
-    except:
-        font = ImageFont.load_default()
-    
-    # Colors
-    box_color = (235, 245, 255)
-    box_border = (70, 130, 180)
-    text_color = (0, 0, 0)
-    line_color = (100, 140, 180)
-    
-    # Position variables
-    padding = 20
-    x, y = padding, padding
-    row_height = 0
-    max_width = 0
-    box_spacing = 40
-    
-    # Draw model boxes
-    model_boxes = {}
-    
-    for model in class_info:
-        model_name = model['name']
-        fields = model['fields']
-        
-        print(f"Processing model: {model_name} with {len(fields)} fields")
-        
-        # Calculate box dimensions
-        field_texts = [f"{field['name']}" for field in fields]
-        field_widths = [draw.textlength(text, font=font) + 50 for text in field_texts]
-        title_width = draw.textlength(model_name, font=font) + 30
-        
-        box_width = max(max(field_widths) if field_widths else 0, title_width) + padding * 2
-        if not field_widths:
-            box_width = max(200, box_width)
-            
-        box_height = (len(fields) + 1) * (font_size + 10) + padding * 2
-        if not fields:
-            box_height = 60
-        
-        # Move to next row if needed
-        if x + box_width + box_spacing > img_width:
-            x = padding
-            y += row_height + box_spacing
-            row_height = 0
-        
-        # Draw box
-        draw.rectangle([(x, y), (x + box_width, y + box_height)], 
-                      outline=box_border, fill=box_color, width=2)
-        
-        # Draw title
-        draw.text((x + padding + 25, y + padding), model_name, fill=text_color, font=font)
-        draw.text((x + padding, y + padding), "📋", fill=text_color, font=font)
-        
-        # Draw separator
-        draw.line([(x, y + font_size + padding * 1.5), 
-                  (x + box_width, y + font_size + padding * 1.5)], 
-                 fill=box_border, width=1)
-        
-        # Draw fields
-        field_positions = {}
-        for i, field in enumerate(fields):
-            field_y = y + padding * 1.5 + font_size + (i + 1) * (font_size + 10)
-            field_name = field['name']
-            
-            # Determine icon
-            if field['primary_key']:
-                icon = '🔑'
-            elif field['is_relation']:
-                if field['type'] == 'ManyToManyField':
-                    icon = '🔗'
-                else:
-                    icon = '🔑'
-            elif field['type'] in ['CharField', 'TextField']:
-                icon = 'abc'
-            elif field['type'] in ['IntegerField', 'DecimalField']:
-                icon = '123'
-            elif field['type'] in ['DateTimeField', 'DateField']:
-                icon = '📅'
-            elif field['type'] in ['BooleanField']:
-                icon = '✓'
-            else:
-                icon = '●'
-            
-            # Draw field
-            draw.text((x + padding, field_y), icon, fill=text_color, font=font)
-            draw.text((x + padding + 25, field_y), field_name, fill=text_color, font=font)
-            
-            field_positions[field_name] = field_y
-        
-        # Store box info
-        model_boxes[model_name] = {
-            'x': x, 'y': y, 'width': box_width, 'height': box_height,
-            'fields': field_positions,
-            'model': model
-        }
-        
-        # Update position
-        x += box_width + box_spacing
-        row_height = max(row_height, box_height)
-        max_width = max(max_width, x)
-    
-    # Draw relationships
-    for model_name, box_info in model_boxes.items():
-        model = box_info['model']
-        
-        for field in model['fields']:
-            if field['is_relation'] and field['related_model']:
-                related_model = field['related_model']
-                
-                # Try to find the related model by name
-                target_model = None
-                for name in model_boxes:
-                    if name == related_model:
-                        target_model = name
-                        break
-                
-                if target_model:
-                    # Get boxes
-                    from_box = box_info
-                    to_box = model_boxes[target_model]
-                    
-                    # Get positions
-                    field_name = field['name']
-                    if field_name in from_box['fields']:
-                        from_y = from_box['fields'][field_name]
-                        from_x = from_box['x'] + from_box['width']
-                        to_x = to_box['x']
-                        to_y = to_box['y'] + to_box['height'] // 2
-                        
-                        # Draw connection
-                        mid_x = (from_x + to_x) // 2
-                        
-                        # Draw lines
-                        draw.line([(from_x, from_y), (mid_x, from_y)], fill=line_color, width=2)
-                        draw.line([(mid_x, from_y), (mid_x, to_y)], fill=line_color, width=2)
-                        draw.line([(mid_x, to_y), (to_x, to_y)], fill=line_color, width=2)
-                        
-                        # Draw connector dots
-                        dot_radius = 4
-                        draw.ellipse([(from_x - dot_radius, from_y - dot_radius), 
-                                    (from_x + dot_radius, from_y + dot_radius)], 
-                                    fill=line_color)
-                        draw.ellipse([(to_x - dot_radius, to_y - dot_radius), 
-                                    (to_x + dot_radius, to_y + dot_radius)], 
-                                    fill=line_color)
-    
-    # Resize and save
-    img = img.crop((0, 0, max_width, y + row_height + padding))
-    img.save('model_diagram.png')
-    print(f"Model diagram saved to {os.path.abspath('model_diagram.png')}")
 
-if __name__ == "__main__":
-    main
+        return Response(all_models_info)
