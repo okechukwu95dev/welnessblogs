@@ -1,40 +1,48 @@
-from django.apps import apps
-from rest_framework.views import APIView
-from rest_framework.response import Response
-
-class ModelDiagramAPIView(APIView):
-    def get(self, request):
-        all_models_info = []
-
-        # Loop over all models in your app (adjust 'your_app_name' if needed)
-        for model in apps.get_app_config('your_app_name').get_models():
-            model_name = model.__name__
-            
+ model_name = model.__name__
             fields_data = []
             relationships_data = []
 
-            # Loop over all fields in this model
             for field in model._meta.get_fields():
-                # If it's a relationship field (ForeignKey, ManyToMany, OneToOne, etc.)
-                if field.is_relation and field.related_model:
-                    # Example: store as an "edge" or "relationship"
+                if field.is_relation:
+                    # Determine the relationship type/direction
+                    if field.many_to_one:
+                        # This is a ForeignKey on 'model_name' pointing to field.related_model
+                        relationship_type = "ManyToOne (ForeignKey)"
+                        source = model_name
+                        target = field.related_model.__name__
+                    elif field.one_to_many:
+                        # Reverse side of a ForeignKey
+                        relationship_type = "OneToMany (Reverse FK)"
+                        source = field.related_model.__name__
+                        target = model_name
+                    elif field.many_to_many:
+                        relationship_type = "ManyToMany"
+                        source = model_name
+                        target = field.related_model.__name__
+                    elif field.one_to_one:
+                        relationship_type = "OneToOne"
+                        source = model_name
+                        target = field.related_model.__name__
+                    else:
+                        relationship_type = "Unknown"
+                        source = model_name
+                        target = field.related_model.__name__
+
                     relationships_data.append({
                         "field_name": field.name,
-                        "relationship_type": type(field).__name__,   # e.g. 'ForeignKey'
-                        "related_model": field.related_model.__name__  # e.g. 'FundingConfiguration'
+                        "relationship_type": relationship_type,
+                        "source": source,
+                        "target": target
                     })
                 else:
-                    # Otherwise, treat it as a normal field
+                    # Non-relation field
                     fields_data.append({
                         "field_name": field.name,
-                        "field_type": field.get_internal_type()  # e.g. 'CharField', 'BooleanField'
+                        "field_type": field.get_internal_type()
                     })
 
-            # Build up the info for this model
-            all_models_info.append({
+            result.append({
                 "model_name": model_name,
                 "fields": fields_data,
                 "relationships": relationships_data
             })
-
-        return Response(all_models_info)
