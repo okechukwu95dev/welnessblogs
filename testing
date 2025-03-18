@@ -1,214 +1,206 @@
-// Mock the entire module at the top BEFORE importing
-jest.mock('@/main/components/ExportMenu/exportFunctions');
+from PIL import Image, ImageDraw, ImageFont
+import os
+import importlib.util
+import sys
 
-// Then import the mocked functions
-import {
-  downloadFile,
-  fetchAndLogExports,
-  handleStagedExportDownload,
-  handleReleaseExport,
-  handleLatestStagedExportDownload,
-  handleReleasedExportDownload
-} from '@/main/components/ExportMenu/exportFunctions';
+def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagram.png'):
+    # Load the draft file as a module
+    spec = importlib.util.spec_from_file_location("draft_module", draft_file_path)
+    draft_module = importlib.util.module_from_spec(spec)
+    sys.modules["draft_module"] = draft_module
+    spec.loader.exec_module(draft_module)
+    
+    # Find model classes in the module
+    model_classes = []
+    for name in dir(draft_module):
+        obj = getattr(draft_module, name)
+        # Check if it's a class and has attributes that suggest it's a model
+        if isinstance(obj, type) and hasattr(obj, '__dict__'):
+            # Simple heuristic to identify model classes - adjust as needed
+            if any(hasattr(obj, attr) for attr in ['objects', 'DoesNotExist', '_meta']):
+                model_classes.append(obj)
+            # Alternative detection for draft models without Django initialization
+            elif hasattr(obj, '__module__') and 'draft_module' in obj.__module__:
+                if any(field_name for field_name in dir(obj) if not field_name.startswith('__')):
+                    model_classes.append(obj)
+    
+    # Calculate dimensions
+    font_size = 14
+    try:
+        font = ImageFont.truetype("arial.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+    
+    # Colors
+    bg_color = (255, 255, 255)
+    box_color = (235, 245, 255)
+    box_border = (70, 130, 180)
+    text_color = (0, 0, 0)
+    line_color = (100, 140, 180)
+    
+    # Initial image size
+    img_width = 2000
+    img_height = 1500
+    padding = 20
+    
+    # Create image
+    img = Image.new('RGB', (img_width, img_height), bg_color)
+    draw = ImageDraw.Draw(img)
+    
+    # Track model boxes
+    model_boxes = {}
+    
+    # Positioning variables
+    x, y = padding, padding
+    max_width = 0
+    row_height = 0
+    box_spacing = 40
+    
+    # Draw model boxes
+    for model_class in model_classes:
+        model_name = model_class.__name__
+        
+        # Get fields - this needs to be adapted to how your fields are defined in draft.py
+        fields = []
+        for attr_name in dir(model_class):
+            if not attr_name.startswith('__'):
+                attr = getattr(model_class, attr_name)
+                # This is a simple heuristic and may need to be adapted
+                if hasattr(attr, 'field_type') or isinstance(attr, tuple) or isinstance(attr, dict):
+                    fields.append({
+                        'name': attr_name,
+                        'type': getattr(attr, 'field_type', 'Field') if hasattr(attr, 'field_type') else 'Field',
+                        'primary_key': getattr(attr, 'primary_key', False) if hasattr(attr, 'primary_key') else False,
+                        'relation': getattr(attr, 'relation', None) if hasattr(attr, 'relation') else None
+                    })
+        
+        # Calculate box dimensions
+        field_texts = [f"{field['name']}" for field in fields]
+        field_widths = [draw.textlength(text, font=font) + 50 for text in field_texts]  # Add space for icons
+        title_width = draw.textlength(model_name, font=font) + 30  # Space for model icon
+        box_width = max(max(field_widths) if field_widths else 0, title_width) + padding * 2
+        box_height = (len(fields) + 1) * (font_size + 10) + padding * 2
+        
+        # Check if we need to move to next row
+        if x + box_width + box_spacing > img_width:
+            x = padding
+            y += row_height + box_spacing
+            row_height = 0
+        
+        # Draw box with rounded corners
+        draw.rectangle([(x, y), (x + box_width, y + box_height)], 
+                      outline=box_border, fill=box_color, width=2)
+        
+        # Draw title with model icon
+        draw.text((x + padding + 25, y + padding), model_name, fill=text_color, font=font)
+        draw.text((x + padding, y + padding), "📋", fill=text_color, font=font)
+        
+        # Draw separator line
+        draw.line([(x, y + font_size + padding * 1.5), 
+                  (x + box_width, y + font_size + padding * 1.5)], 
+                 fill=box_border, width=1)
+        
+        # Draw fields with appropriate icons
+        field_positions = {}
+        for i, field in enumerate(fields):
+            field_y = y + padding * 1.5 + font_size + (i + 1) * (font_size + 10)
+            field_name = field['name']
+            
+            # Determine field icon based on field type
+            if field['primary_key']:
+                icon = '🔑'
+            elif field['type'] in ['ForeignKey', 'OneToOneField'] or field['relation']:
+                icon = '🔑'
+            elif field['type'] in ['ManyToManyField']:
+                icon = '🔗'
+            elif field['type'] in ['CharField', 'TextField', 'SlugField']:
+                icon = 'abc'
+            elif field['type'] in ['IntegerField', 'DecimalField', 'FloatField']:
+                icon = '123'
+            elif field['type'] in ['DateTimeField', 'DateField']:
+                icon = '📅'
+            elif field['type'] in ['BooleanField']:
+                icon = '✓'
+            else:
+                icon = '●'
+            
+            # Draw field icon and name
+            draw.text((x + padding, field_y), icon, fill=text_color, font=font)
+            draw.text((x + padding + 25, field_y), field_name, fill=text_color, font=font)
+            
+            # Store field position for relationship lines
+            field_positions[field_name] = field_y
+        
+        # Store box position for relationship lines
+        model_boxes[model_class] = {
+            'x': x, 'y': y, 'width': box_width, 'height': box_height,
+            'fields': field_positions
+        }
+        
+        # Update positioning
+        x += box_width + box_spacing
+        row_height = max(row_height, box_height)
+        max_width = max(max_width, x)
+    
+    # Draw relationships - this will need to be adapted based on how relations are defined
+    for model_class in model_classes:
+        for attr_name in dir(model_class):
+            if not attr_name.startswith('__'):
+                attr = getattr(model_class, attr_name)
+                relation = getattr(attr, 'relation', None) if hasattr(attr, 'relation') else None
+                
+                if relation:
+                    # Find the related model
+                    related_model = None
+                    for m in model_classes:
+                        if m.__name__ == relation:
+                            related_model = m
+                            break
+                    
+                    if related_model and related_model in model_boxes and model_class in model_boxes:
+                        # Get box positions
+                        from_box = model_boxes[model_class]
+                        to_box = model_boxes[related_model]
+                        
+                        # Field position
+                        if attr_name in from_box['fields']:
+                            from_y = from_box['fields'][attr_name]
+                            
+                            # Calculate line positions
+                            from_x = from_box['x'] + from_box['width']
+                            to_x = to_box['x']
+                            to_y = to_box['y'] + to_box['height'] // 2
+                            
+                            # Draw connection with dots
+                            mid_x = (from_x + to_x) // 2
+                            
+                            # Draw lines
+                            draw.line([(from_x, from_y), (mid_x, from_y)], fill=line_color, width=2)
+                            draw.line([(mid_x, from_y), (mid_x, to_y)], fill=line_color, width=2)
+                            draw.line([(mid_x, to_y), (to_x, to_y)], fill=line_color, width=2)
+                            
+                            # Draw connector dots
+                            dot_radius = 4
+                            draw.ellipse([(from_x - dot_radius, from_y - dot_radius), 
+                                         (from_x + dot_radius, from_y + dot_radius)], 
+                                        fill=line_color)
+                            draw.ellipse([(to_x - dot_radius, to_y - dot_radius), 
+                                         (to_x + dot_radius, to_y + dot_radius)], 
+                                        fill=line_color)
+    
+    # Resize image to fit content
+    img = img.crop((0, 0, max_width, y + row_height + padding))
+    
+    # Save image
+    img.save(output_path)
+    print(f"Model diagram saved to {os.path.abspath(output_path)}")
+    return os.path.abspath(output_path)
 
-// Mock FilenameUtils
-jest.mock('@/main/utility/FilenameUtils', () => ({
-  generateExportFilename: jest.fn((exportData, stage) => 
-    `export-${exportData.id}-${stage}.zip`)
-}));
-
-describe('Export Functions', () => {
-  let mockClient;
-  let mockAnchor;
-  
-  beforeEach(() => {
-    jest.clearAllMocks();
+# Usage
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        draft_file = sys.argv[1]
+    else:
+        draft_file = "draft.py"  # Default name
     
-    // Setup mock client
-    mockClient = {
-      get: jest.fn(),
-      post: jest.fn(),
-      put: jest.fn()
-    };
-    
-    // Setup mock anchor
-    mockAnchor = {
-      href: '',
-      download: '',
-      click: jest.fn()
-    };
-    
-    // Mock document methods
-    document.createElement = jest.fn(() => mockAnchor);
-    document.body.appendChild = jest.fn();
-    document.body.removeChild = jest.fn();
-    
-    // Mock URL.createObjectURL
-    global.URL.createObjectURL = jest.fn(() => 'blob:mock-url');
-    
-    // Mock console methods
-    console.log = jest.fn();
-    console.error = jest.fn();
-  });
-  
-  describe('downloadFile', () => {
-    it('should download a file', async () => {
-      // Setup mocks
-      const mockExportData = { id: 1, artifactSource: 'test-source' };
-      const blob = new Blob(['test'], { type: 'application/zip' });
-      mockClient.get.mockResolvedValue({ data: blob });
-      
-      // Mock downloadFile to track calls 
-      (downloadFile as jest.Mock).mockImplementation(async (client, artifactSource, exportData, stage) => {
-        await client.get(`/export-artifact/${artifactSource}/download/`, { responseType: 'blob' });
-        document.createElement('a');
-        URL.createObjectURL(blob);
-        mockAnchor.click();
-      });
-      
-      // Execute the function
-      await downloadFile(mockClient, 'test-source', mockExportData, 'RELEASE');
-      
-      // Verify - these checks should now pass
-      expect(downloadFile).toHaveBeenCalled();
-      expect(mockClient.get).toHaveBeenCalledWith('/export-artifact/test-source/download/', { responseType: 'blob' });
-      expect(document.createElement).toHaveBeenCalled();
-      expect(URL.createObjectURL).toHaveBeenCalled();
-      expect(mockAnchor.click).toHaveBeenCalled();
-    });
-  });
-  
-  describe('handleLatestStagedExportDownload', () => {
-    it('should download the latest staged export', async () => {
-      // Setup test data
-      const latestStagedExport = { 
-        id: 1, 
-        artifactSource: 'test-source',
-        exportPhase: 'STAGING'
-      };
-      
-      // Mock the functions being tested
-      (fetchAndLogExports as jest.Mock).mockResolvedValue({
-        latestStagedExport,
-        latestReleasedExport: null
-      });
-      
-      (downloadFile as jest.Mock).mockResolvedValue(undefined);
-      
-      // Mock the function we're directly testing to ensure it calls the dependencies
-      (handleLatestStagedExportDownload as jest.Mock).mockImplementation(async (client) => {
-        const { latestStagedExport } = await fetchAndLogExports(client);
-        if (latestStagedExport) {
-          await downloadFile(client, latestStagedExport.id, latestStagedExport, 'STAGED');
-        } else {
-          console.log('No Staged Exports available for download.');
-        }
-      });
-      
-      // Execute the function
-      await handleLatestStagedExportDownload(mockClient);
-      
-      // Verify calls
-      expect(handleLatestStagedExportDownload).toHaveBeenCalled();
-      expect(fetchAndLogExports).toHaveBeenCalledWith(mockClient);
-      expect(downloadFile).toHaveBeenCalledWith(
-        mockClient,
-        latestStagedExport.id,
-        latestStagedExport,
-        'STAGED'
-      );
-    });
-    
-    it('should handle case with no staged exports', async () => {
-      // Mock fetchAndLogExports to return null values
-      (fetchAndLogExports as jest.Mock).mockResolvedValue({
-        latestStagedExport: null,
-        latestReleasedExport: null
-      });
-      
-      // Re-implement the handler for this test
-      (handleLatestStagedExportDownload as jest.Mock).mockImplementation(async (client) => {
-        const { latestStagedExport } = await fetchAndLogExports(client);
-        if (latestStagedExport) {
-          await downloadFile(client, latestStagedExport.id, latestStagedExport, 'STAGED');
-        } else {
-          console.log('No Staged Exports available for download.');
-        }
-      });
-      
-      // Execute
-      await handleLatestStagedExportDownload(mockClient);
-      
-      // Verify
-      expect(console.log).toHaveBeenCalledWith('No Staged Exports available for download.');
-      expect(downloadFile).not.toHaveBeenCalled();
-    });
-  });
-  
-  describe('handleReleasedExportDownload', () => {
-    it('should download the latest released export', async () => {
-      // Setup test data
-      const latestReleasedExport = { 
-        id: 2, 
-        artifactSource: 'test-source',
-        exportPhase: 'RELEASE'
-      };
-      
-      // Mock fetchAndLogExports to return test data
-      (fetchAndLogExports as jest.Mock).mockResolvedValue({
-        latestStagedExport: null,
-        latestReleasedExport
-      });
-      
-      // Mock downloadFile function
-      (downloadFile as jest.Mock).mockResolvedValue(undefined);
-      
-      // Implement handler for this test
-      (handleReleasedExportDownload as jest.Mock).mockImplementation(async (client) => {
-        const { latestReleasedExport } = await fetchAndLogExports(client);
-        if (latestReleasedExport) {
-          await downloadFile(client, latestReleasedExport.artifactSource, latestReleasedExport, 'RELEASE');
-        } else {
-          console.log('No Released Export available for download.');
-        }
-      });
-      
-      // Execute
-      await handleReleasedExportDownload(mockClient);
-      
-      // Verify
-      expect(fetchAndLogExports).toHaveBeenCalledWith(mockClient);
-      expect(downloadFile).toHaveBeenCalledWith(
-        mockClient,
-        latestReleasedExport.artifactSource,
-        latestReleasedExport,
-        'RELEASE'
-      );
-    });
-    
-    it('should handle case with no released exports', async () => {
-      // Mock fetchAndLogExports to return null values
-      (fetchAndLogExports as jest.Mock).mockResolvedValue({
-        latestStagedExport: null,
-        latestReleasedExport: null
-      });
-      
-      // Implement the handler for this test
-      (handleReleasedExportDownload as jest.Mock).mockImplementation(async (client) => {
-        const { latestReleasedExport } = await fetchAndLogExports(client);
-        if (latestReleasedExport) {
-          await downloadFile(client, latestReleasedExport.artifactSource, latestReleasedExport, 'RELEASE');
-        } else {
-          console.log('No Released Export available for download.');
-        }
-      });
-      
-      // Execute
-      await handleReleasedExportDownload(mockClient);
-      
-      // Verify
-      expect(console.log).toHaveBeenCalledWith('No Released Export available for download.');
-      expect(downloadFile).not.toHaveBeenCalled();
-    });
-  });
-});
+    generate_model_diagram_from_draft(draft_file)
