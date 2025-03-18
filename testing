@@ -1,37 +1,94 @@
 from PIL import Image, ImageDraw, ImageFont
 import os
-import sys
-import inspect
 
-def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagram.png'):
-    # Use a more direct approach to import the module
-    import importlib.machinery
-    loader = importlib.machinery.SourceFileLoader("draft_module", draft_file_path)
-    draft_module = loader.load_module()
+def main():
+    # Read draft.py as text
+    with open('draft.py', 'r') as f:
+        content = f.read()
     
-    # Get model classes by looking for classes that inherit from models.Model
-    model_classes = []
-    for name, obj in inspect.getmembers(draft_module):
-        if inspect.isclass(obj):
-            # Check if it's a Django model or has model-like attributes
-            if hasattr(obj, '__module__') and 'draft_module' in obj.__module__:
-                # Check for Django model indicators or your custom model structure
-                if hasattr(obj, 'objects') or hasattr(obj, '_meta') or hasattr(obj, 'DoesNotExist'):
-                    model_classes.append(obj)
+    # Extract model information manually
+    class_info = []
+    current_class = None
+    lines = content.split('\n')
+    
+    for line in lines:
+        stripped = line.strip()
+        
+        # Detect class definition
+        if stripped.startswith('class ') and '(' in stripped and ':' in stripped:
+            class_name = stripped[6:stripped.find('(')].strip()
+            
+            # Skip Audit and Version classes
+            if class_name == 'Audit' or class_name == 'Version' or class_name.endswith('Audit') or class_name.endswith('Version'):
+                current_class = None
+                continue
+                
+            base_classes = stripped[stripped.find('(')+1:stripped.find(')')].strip()
+            
+            # Check if it's a model class
+            if 'DraftEntity' in base_classes or 'models.Model' in base_classes:
+                current_class = {
+                    'name': class_name,
+                    'fields': []
+                }
+                class_info.append(current_class)
+        
+        # Inside a class definition, look for fields
+        elif current_class is not None and '=' in stripped and not stripped.startswith(('def', 'class', '#')):
+            # Extract field information
+            field_name = stripped.split('=')[0].strip()
+            field_def = stripped.split('=', 1)[1].strip()
+            
+            # Skip meta fields
+            if field_name in ['model_name', 'Meta', 'objects', 'class']:
+                continue
+                
+            # Determine field type
+            field_type = 'Field'
+            is_primary = 'primary_key=True' in field_def
+            is_relation = any(rel in field_def for rel in ['ForeignKey', 'OneToOneField', 'ManyToManyField'])
+            related_model = None
+            
+            if 'CharField' in field_def or 'TextField' in field_def:
+                field_type = 'CharField'
+            elif 'IntegerField' in field_def or 'DecimalField' in field_def:
+                field_type = 'IntegerField'
+            elif 'DateTimeField' in field_def or 'DateField' in field_def:
+                field_type = 'DateTimeField'
+            elif 'BooleanField' in field_def:
+                field_type = 'BooleanField'
+            elif is_relation:
+                # Try to extract related model
+                if 'ManyToManyField' in field_def:
+                    field_type = 'ManyToManyField'
+                elif 'OneToOneField' in field_def:
+                    field_type = 'OneToOneField'
                 else:
-                    # For custom model structures, check if it has fields or attributes
-                    model_attrs = [attr for attr in dir(obj) if not attr.startswith('__')]
-                    if model_attrs:
-                        model_classes.append(obj)
+                    field_type = 'ForeignKey'
+                    
+                # Extract related model name
+                if '(' in field_def and ')' in field_def:
+                    rel_part = field_def.split('(', 1)[1].split(')', 1)[0]
+                    if ',' in rel_part:
+                        rel_model = rel_part.split(',')[0].strip()
+                    else:
+                        rel_model = rel_part.strip()
+                    
+                    # Remove quotes if present
+                    if rel_model.startswith(("'", '"')) and rel_model.endswith(("'", '"')):
+                        rel_model = rel_model[1:-1]
+                        
+                    related_model = rel_model
+                    
+            current_class['fields'].append({
+                'name': field_name,
+                'type': field_type,
+                'primary_key': is_primary,
+                'is_relation': is_relation,
+                'related_model': related_model
+            })
     
-    # If no models found, try a simpler approach (for non-standard model definitions)
-    if not model_classes:
-        # Find class definitions that have model-like attributes
-        for name, obj in inspect.getmembers(draft_module):
-            if inspect.isclass(obj) and 'model' in name.lower():
-                model_classes.append(obj)
-    
-    # Create image
+    # Now create the diagram
     img_width = 2000
     img_height = 1500
     bg_color = (255, 255, 255)
@@ -42,7 +99,7 @@ def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagra
     font_size = 14
     try:
         font = ImageFont.truetype("arial.ttf", font_size)
-    except IOError:
+    except:
         font = ImageFont.load_default()
     
     # Colors
@@ -58,44 +115,27 @@ def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagra
     max_width = 0
     box_spacing = 40
     
-    # Track model boxes
+    # Draw model boxes
     model_boxes = {}
     
-    # Draw model boxes
-    for model_class in model_classes:
-        model_name = model_class.__name__
-        print(f"Processing model: {model_name}")
+    for model in class_info:
+        model_name = model['name']
+        fields = model['fields']
         
-        # Get fields - look for attributes that might be fields
-        fields = []
-        # Try to get fields through _meta if it's a real Django model
-        if hasattr(model_class, '_meta') and hasattr(model_class._meta, 'fields'):
-            for field in model_class._meta.fields:
-                fields.append({
-                    'name': field.name,
-                    'type': field.get_internal_type() if hasattr(field, 'get_internal_type') else type(field).__name__,
-                    'primary_key': field.primary_key if hasattr(field, 'primary_key') else False,
-                    'is_relation': field.is_relation if hasattr(field, 'is_relation') else False,
-                    'related_model': field.related_model.__name__ if hasattr(field, 'related_model') and field.related_model else None
-                })
-        else:
-            # For custom models, examine class attributes
-            for attr_name in dir(model_class):
-                if not attr_name.startswith('__') and not callable(getattr(model_class, attr_name, None)):
-                    fields.append({
-                        'name': attr_name,
-                        'type': 'Field',  # Default type
-                        'primary_key': attr_name == 'id',
-                        'is_relation': False,
-                        'related_model': None
-                    })
+        print(f"Processing model: {model_name} with {len(fields)} fields")
         
         # Calculate box dimensions
         field_texts = [f"{field['name']}" for field in fields]
         field_widths = [draw.textlength(text, font=font) + 50 for text in field_texts]
         title_width = draw.textlength(model_name, font=font) + 30
+        
         box_width = max(max(field_widths) if field_widths else 0, title_width) + padding * 2
+        if not field_widths:
+            box_width = max(200, box_width)
+            
         box_height = (len(fields) + 1) * (font_size + 10) + padding * 2
+        if not fields:
+            box_height = 60
         
         # Move to next row if needed
         if x + box_width + box_spacing > img_width:
@@ -126,10 +166,13 @@ def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagra
             if field['primary_key']:
                 icon = '🔑'
             elif field['is_relation']:
-                icon = '🔗'
-            elif field['type'] in ['CharField', 'TextField', 'SlugField']:
+                if field['type'] == 'ManyToManyField':
+                    icon = '🔗'
+                else:
+                    icon = '🔑'
+            elif field['type'] in ['CharField', 'TextField']:
                 icon = 'abc'
-            elif field['type'] in ['IntegerField', 'DecimalField', 'FloatField']:
+            elif field['type'] in ['IntegerField', 'DecimalField']:
                 icon = '123'
             elif field['type'] in ['DateTimeField', 'DateField']:
                 icon = '📅'
@@ -147,7 +190,8 @@ def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagra
         # Store box info
         model_boxes[model_name] = {
             'x': x, 'y': y, 'width': box_width, 'height': box_height,
-            'fields': field_positions
+            'fields': field_positions,
+            'model': model
         }
         
         # Update position
@@ -155,63 +199,55 @@ def generate_model_diagram_from_draft(draft_file_path, output_path='model_diagra
         row_height = max(row_height, box_height)
         max_width = max(max_width, x)
     
-    # Try to draw relationships based on field names that hint at relations
-    for model_class in model_classes:
-        model_name = model_class.__name__
-        if model_name not in model_boxes:
-            continue
-            
-        for field in [f for f in dir(model_class) if not f.startswith('__')]:
-            # Check if field name suggests a relation
-            for other_model_name in model_boxes.keys():
-                # Skip self relation checks
-                if other_model_name == model_name:
-                    continue
-                    
-                # Look for fields that might be relations
-                if (other_model_name.lower() in field.lower() or 
-                    (field.endswith('_id') and field[:-3].lower() in other_model_name.lower())):
-                    
+    # Draw relationships
+    for model_name, box_info in model_boxes.items():
+        model = box_info['model']
+        
+        for field in model['fields']:
+            if field['is_relation'] and field['related_model']:
+                related_model = field['related_model']
+                
+                # Try to find the related model by name
+                target_model = None
+                for name in model_boxes:
+                    if name == related_model:
+                        target_model = name
+                        break
+                
+                if target_model:
                     # Get boxes
-                    from_box = model_boxes[model_name]
-                    to_box = model_boxes[other_model_name]
+                    from_box = box_info
+                    to_box = model_boxes[target_model]
                     
-                    # Skip if field not found
-                    if field not in from_box['fields']:
-                        continue
-                        
                     # Get positions
-                    from_y = from_box['fields'][field]
-                    from_x = from_box['x'] + from_box['width']
-                    to_x = to_box['x']
-                    to_y = to_box['y'] + to_box['height'] // 2
-                    
-                    # Draw connection
-                    mid_x = (from_x + to_x) // 2
-                    draw.line([(from_x, from_y), (mid_x, from_y)], fill=line_color, width=2)
-                    draw.line([(mid_x, from_y), (mid_x, to_y)], fill=line_color, width=2)
-                    draw.line([(mid_x, to_y), (to_x, to_y)], fill=line_color, width=2)
-                    
-                    # Draw dots
-                    dot_radius = 4
-                    draw.ellipse([(from_x - dot_radius, from_y - dot_radius), 
-                                 (from_x + dot_radius, from_y + dot_radius)], 
-                                fill=line_color)
-                    draw.ellipse([(to_x - dot_radius, to_y - dot_radius), 
-                                 (to_x + dot_radius, to_y + dot_radius)], 
-                                fill=line_color)
+                    field_name = field['name']
+                    if field_name in from_box['fields']:
+                        from_y = from_box['fields'][field_name]
+                        from_x = from_box['x'] + from_box['width']
+                        to_x = to_box['x']
+                        to_y = to_box['y'] + to_box['height'] // 2
+                        
+                        # Draw connection
+                        mid_x = (from_x + to_x) // 2
+                        
+                        # Draw lines
+                        draw.line([(from_x, from_y), (mid_x, from_y)], fill=line_color, width=2)
+                        draw.line([(mid_x, from_y), (mid_x, to_y)], fill=line_color, width=2)
+                        draw.line([(mid_x, to_y), (to_x, to_y)], fill=line_color, width=2)
+                        
+                        # Draw connector dots
+                        dot_radius = 4
+                        draw.ellipse([(from_x - dot_radius, from_y - dot_radius), 
+                                    (from_x + dot_radius, from_y + dot_radius)], 
+                                    fill=line_color)
+                        draw.ellipse([(to_x - dot_radius, to_y - dot_radius), 
+                                    (to_x + dot_radius, to_y + dot_radius)], 
+                                    fill=line_color)
     
     # Resize and save
     img = img.crop((0, 0, max_width, y + row_height + padding))
-    img.save(output_path)
-    print(f"Model diagram saved to {os.path.abspath(output_path)}")
-    return os.path.abspath(output_path)
+    img.save('model_diagram.png')
+    print(f"Model diagram saved to {os.path.abspath('model_diagram.png')}")
 
-# Usage
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        draft_file = sys.argv[1]
-    else:
-        draft_file = "draft.py"  # Default name
-    
-    generate_model_diagram_from_draft(draft_file)
+    main
