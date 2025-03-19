@@ -1,8 +1,9 @@
 /**
- * TypeScript Field Source Locator
+ * Enhanced TypeScript Field Source Locator
  * 
  * This script scans TypeScript files to find field origins
  * and adds detailed "// Found in..." comments to a new output file.
+ * It handles deeply nested imports and complex project structures.
  */
 
 const fs = require('fs');
@@ -10,17 +11,7 @@ const path = require('path');
 
 // Configuration
 const config = {
-  // The target file to analyze
-  targetFile: 'merchant-account-entity.ts',
-  
-  // Output file path (will be created/overwritten)
-  outputFile: 'merchant-account-entity.commented.ts',
-  
-  // The root directory of your project (where to resolve relative imports from)
-  projectRoot: './',
-  
-  // Log detailed information during scanning
-  verbose: true
+
 };
 
 // Main function
@@ -50,7 +41,7 @@ async function main() {
   }
   console.log(`Found ${totalFields} fields in total`);
   
-  // Resolve all imported file paths
+  // Resolve all imported file paths with enhanced resolution
   const resolvedImports = resolveImportPaths(imports);
   console.log(`Resolved ${resolvedImports.filter(i => i.resolved).length} import paths`);
   
@@ -87,11 +78,11 @@ async function main() {
   
   if (missingFields.length > 0) {
     console.log(`\nWarning: Could not find sources for ${missingFields.length} fields:`);
-    for (let i = 0; i < Math.min(missingFields.length, 10); i++) {
+    for (let i = 0; i < Math.min(missingFields.length, 20); i++) {
       console.log(`- ${missingFields[i]}`);
     }
-    if (missingFields.length > 10) {
-      console.log(`... and ${missingFields.length - 10} more`);
+    if (missingFields.length > 20) {
+      console.log(`... and ${missingFields.length - 20} more`);
     }
   }
 }
@@ -177,7 +168,56 @@ function extractInterfacesAndFields(content) {
   return interfaces;
 }
 
-// Resolve import paths to actual file paths
+// Enhanced function to search for files in project
+function findFileInProject(relativePath, baseDir) {
+  // Build a list of potential search paths
+  const possiblePaths = [
+    // Try standard relative path from target file directory
+    path.join(path.dirname(config.targetFile), relativePath),
+    
+    // Try with src as base
+    path.join(baseDir, 'src', relativePath),
+    
+    // Try removing leading ../../../ and searching from project root
+    path.join(baseDir, relativePath.replace(/^(\.\.\/)+/, '')),
+    
+    // Try from arc directory if it exists
+    path.join(baseDir, 'arc', relativePath.replace(/^(\.\.\/)+/, '')),
+    
+    // Try deeply nested search - remove all relative parts and search recursively
+    path.join(baseDir, relativePath.split('/').filter(p => !p.startsWith('.')).join('/'))
+  ];
+  
+  // Extensions to try
+  const extensions = ['', '.ts', '.tsx', '.js', '.jsx'];
+  
+  for (const basePath of possiblePaths) {
+    // Try exact path
+    if (fs.existsSync(basePath)) {
+      return basePath;
+    }
+    
+    // Try with extensions
+    for (const ext of extensions) {
+      const pathWithExt = `${basePath}${ext}`;
+      if (fs.existsSync(pathWithExt)) {
+        return pathWithExt;
+      }
+    }
+    
+    // Try as a directory with index file
+    for (const ext of extensions) {
+      const indexPath = path.join(basePath, `index${ext}`);
+      if (fs.existsSync(indexPath)) {
+        return indexPath;
+      }
+    }
+  }
+  
+  return null;
+}
+
+// Resolve import paths to actual file paths with enhanced resolution
 function resolveImportPaths(imports) {
   const resolvedImports = [];
   
@@ -191,44 +231,24 @@ function resolveImportPaths(imports) {
     
     // Handle relative imports
     if (importPath.startsWith('.')) {
-      // Try different extensions if not specified
-      const extensions = ['.ts', '.tsx', '.js', '.jsx', ''];
-      const basePath = path.resolve(config.projectRoot, importPath);
-      
-      // Try with the exact path first
-      if (fs.existsSync(basePath)) {
+      const resolvedPath = findFileInProject(importPath, config.projectRoot);
+      if (resolvedPath) {
         resolution.resolved = true;
-        resolution.path = basePath;
-      } else {
-        // Try with extensions if not found
-        for (const ext of extensions) {
-          const fullPath = `${basePath}${ext}`;
-          if (fs.existsSync(fullPath)) {
-            resolution.resolved = true;
-            resolution.path = fullPath;
-            break;
-          }
-        }
+        resolution.path = resolvedPath;
         
-        // Try as directory with index files
-        if (!resolution.resolved) {
-          for (const ext of extensions) {
-            const indexPath = path.join(basePath, `index${ext}`);
-            if (fs.existsSync(indexPath)) {
-              resolution.resolved = true;
-              resolution.path = indexPath;
-              break;
-            }
-          }
+        if (config.verbose) {
+          console.log(`Resolved: ${importPath} -> ${resolvedPath}`);
         }
-      }
-      
-      if (!resolution.resolved && config.verbose) {
+      } else if (config.verbose) {
         console.warn(`Warning: Could not resolve import path: ${importPath}`);
       }
     } else {
-      // Handle node_modules or absolute imports
-      if (config.verbose) {
+      // Handle non-relative imports - try to find in node_modules
+      const nodeModulesPath = path.join(config.projectRoot, 'node_modules', importPath);
+      if (fs.existsSync(nodeModulesPath)) {
+        resolution.resolved = true;
+        resolution.path = nodeModulesPath;
+      } else if (config.verbose) {
         console.log(`Skipping non-relative import: ${importPath}`);
       }
     }
@@ -361,6 +381,29 @@ function updateContentWithComments(content, interfaces) {
   }
   
   return lines.join('\n');
+}
+
+// Recursively search for a file with a given name in a directory
+function findFilesByName(dir, filename, results = []) {
+  if (!fs.existsSync(dir)) return results;
+  
+  const list = fs.readdirSync(dir);
+  
+  for (const file of list) {
+    const filePath = path.join(dir, file);
+    const stat = fs.statSync(filePath);
+    
+    if (stat.isDirectory() && 
+        !file.startsWith('node_modules') && 
+        !file.startsWith('.git')) {
+      // Recursively search subdirectories
+      findFilesByName(filePath, filename, results);
+    } else if (file === filename) {
+      results.push(filePath);
+    }
+  }
+  
+  return results;
 }
 
 // Run the script
