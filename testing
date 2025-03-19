@@ -1,48 +1,370 @@
- model_name = model.__name__
-            fields_data = []
-            relationships_data = []
+/**
+ * TypeScript Field Source Locator
+ * 
+ * This script scans TypeScript files to find field origins
+ * and adds detailed "// Found in..." comments to a new output file.
+ */
 
-            for field in model._meta.get_fields():
-                if field.is_relation:
-                    # Determine the relationship type/direction
-                    if field.many_to_one:
-                        # This is a ForeignKey on 'model_name' pointing to field.related_model
-                        relationship_type = "ManyToOne (ForeignKey)"
-                        source = model_name
-                        target = field.related_model.__name__
-                    elif field.one_to_many:
-                        # Reverse side of a ForeignKey
-                        relationship_type = "OneToMany (Reverse FK)"
-                        source = field.related_model.__name__
-                        target = model_name
-                    elif field.many_to_many:
-                        relationship_type = "ManyToMany"
-                        source = model_name
-                        target = field.related_model.__name__
-                    elif field.one_to_one:
-                        relationship_type = "OneToOne"
-                        source = model_name
-                        target = field.related_model.__name__
-                    else:
-                        relationship_type = "Unknown"
-                        source = model_name
-                        target = field.related_model.__name__
+const fs = require('fs');
+const path = require('path');
 
-                    relationships_data.append({
-                        "field_name": field.name,
-                        "relationship_type": relationship_type,
-                        "source": source,
-                        "target": target
-                    })
-                else:
-                    # Non-relation field
-                    fields_data.append({
-                        "field_name": field.name,
-                        "field_type": field.get_internal_type()
-                    })
+// Configuration
+const config = {
+  // The target file to analyze
+  targetFile: 'merchant-account-entity.ts',
+  
+  // Output file path (will be created/overwritten)
+  outputFile: 'merchant-account-entity.commented.ts',
+  
+  // The root directory of your project (where to resolve relative imports from)
+  projectRoot: './',
+  
+  // Log detailed information during scanning
+  verbose: true
+};
 
-            result.append({
-                "model_name": model_name,
-                "fields": fields_data,
-                "relationships": relationships_data
-            })
+// Main function
+async function main() {
+  console.log('Starting TypeScript field source locator...');
+  
+  if (!fs.existsSync(config.targetFile)) {
+    console.error(`Error: Target file ${config.targetFile} does not exist!`);
+    process.exit(1);
+  }
+  
+  // Read the target file content
+  const targetContent = fs.readFileSync(config.targetFile, 'utf8');
+  
+  // Extract imports from the target file
+  const imports = extractImports(targetContent);
+  console.log(`Found ${imports.length} imports in the target file`);
+  
+  // Extract field information from the target file
+  const targetInterfaces = extractInterfacesAndFields(targetContent);
+  console.log(`Found ${Object.keys(targetInterfaces).length} interfaces in the target file`);
+  
+  // Count total fields
+  let totalFields = 0;
+  for (const interfaceName of Object.keys(targetInterfaces)) {
+    totalFields += Object.keys(targetInterfaces[interfaceName].fields).length;
+  }
+  console.log(`Found ${totalFields} fields in total`);
+  
+  // Resolve all imported file paths
+  const resolvedImports = resolveImportPaths(imports);
+  console.log(`Resolved ${resolvedImports.filter(i => i.resolved).length} import paths`);
+  
+  // Scan all imported files for field definitions
+  await scanImportedFiles(resolvedImports, targetInterfaces);
+  
+  // Count fields with sources
+  let foundCount = 0;
+  for (const interfaceName of Object.keys(targetInterfaces)) {
+    for (const fieldName of Object.keys(targetInterfaces[interfaceName].fields)) {
+      if (targetInterfaces[interfaceName].fields[fieldName].source) {
+        foundCount++;
+      }
+    }
+  }
+  console.log(`Found source information for ${foundCount}/${totalFields} fields`);
+  
+  // Update content with comments
+  const updatedContent = updateContentWithComments(targetContent, targetInterfaces);
+  
+  // Write the updated content to the output file
+  fs.writeFileSync(config.outputFile, updatedContent);
+  console.log(`\nCreated commented file at: ${config.outputFile}`);
+  
+  // Report missing sources
+  const missingFields = [];
+  for (const interfaceName of Object.keys(targetInterfaces)) {
+    for (const fieldName of Object.keys(targetInterfaces[interfaceName].fields)) {
+      if (!targetInterfaces[interfaceName].fields[fieldName].source) {
+        missingFields.push(`${interfaceName}.${fieldName}`);
+      }
+    }
+  }
+  
+  if (missingFields.length > 0) {
+    console.log(`\nWarning: Could not find sources for ${missingFields.length} fields:`);
+    for (let i = 0; i < Math.min(missingFields.length, 10); i++) {
+      console.log(`- ${missingFields[i]}`);
+    }
+    if (missingFields.length > 10) {
+      console.log(`... and ${missingFields.length - 10} more`);
+    }
+  }
+}
+
+// Extract all imports from the file
+function extractImports(content) {
+  const imports = [];
+  const lines = content.split('\n');
+  
+  const importRegex = /^\s*import\s+(?:{[^}]+}|\*\s+as\s+\w+|\w+)\s+from\s+['"]([^'"]+)['"]/;
+  
+  for (const line of lines) {
+    const match = line.match(importRegex);
+    if (match) {
+      const importPath = match[1];
+      imports.push(importPath);
+    }
+  }
+  
+  return imports;
+}
+
+// Extract all interfaces and their fields from the target file
+function extractInterfacesAndFields(content) {
+  const interfaces = {};
+  const lines = content.split('\n');
+  
+  let currentInterface = null;
+  let braceCount = 0;
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    
+    // Match interface/class declarations
+    const interfaceMatch = line.match(/^(export\s+)?(interface|class|type)\s+(\w+)/);
+    if (interfaceMatch) {
+      currentInterface = interfaceMatch[3];
+      interfaces[currentInterface] = { 
+        startLine: i,
+        fields: {},
+        braceLevel: 0
+      };
+      
+      if (line.includes('{')) {
+        interfaces[currentInterface].braceLevel++;
+      }
+    }
+    
+    // Track brace levels to know when we exit an interface
+    if (currentInterface && line.includes('{')) {
+      braceCount++;
+    }
+    if (currentInterface && line.includes('}')) {
+      braceCount--;
+      if (braceCount === 0) {
+        interfaces[currentInterface].endLine = i;
+        currentInterface = null;
+      }
+    }
+    
+    // Field declarations
+    if (currentInterface) {
+      // Skip comments and empty lines
+      if (line.startsWith('//') || line === '') {
+        continue;
+      }
+      
+      const fieldMatch = line.match(/^([a-zA-Z0-9_]+)(\??)?(\!?)?\s*:/);
+      if (fieldMatch) {
+        const fieldName = fieldMatch[1];
+        // Check if this field already has a comment
+        const hasComment = i > 0 && lines[i-1].trim().startsWith('//') && lines[i-1].includes('Found in');
+        
+        interfaces[currentInterface].fields[fieldName] = {
+          lineIndex: i,
+          line: lines[i],
+          hasComment: hasComment
+        };
+      }
+    }
+  }
+  
+  return interfaces;
+}
+
+// Resolve import paths to actual file paths
+function resolveImportPaths(imports) {
+  const resolvedImports = [];
+  
+  for (const importPath of imports) {
+    // Create a resolution object
+    const resolution = {
+      original: importPath,
+      resolved: false,
+      path: null
+    };
+    
+    // Handle relative imports
+    if (importPath.startsWith('.')) {
+      // Try different extensions if not specified
+      const extensions = ['.ts', '.tsx', '.js', '.jsx', ''];
+      const basePath = path.resolve(config.projectRoot, importPath);
+      
+      // Try with the exact path first
+      if (fs.existsSync(basePath)) {
+        resolution.resolved = true;
+        resolution.path = basePath;
+      } else {
+        // Try with extensions if not found
+        for (const ext of extensions) {
+          const fullPath = `${basePath}${ext}`;
+          if (fs.existsSync(fullPath)) {
+            resolution.resolved = true;
+            resolution.path = fullPath;
+            break;
+          }
+        }
+        
+        // Try as directory with index files
+        if (!resolution.resolved) {
+          for (const ext of extensions) {
+            const indexPath = path.join(basePath, `index${ext}`);
+            if (fs.existsSync(indexPath)) {
+              resolution.resolved = true;
+              resolution.path = indexPath;
+              break;
+            }
+          }
+        }
+      }
+      
+      if (!resolution.resolved && config.verbose) {
+        console.warn(`Warning: Could not resolve import path: ${importPath}`);
+      }
+    } else {
+      // Handle node_modules or absolute imports
+      if (config.verbose) {
+        console.log(`Skipping non-relative import: ${importPath}`);
+      }
+    }
+    
+    resolvedImports.push(resolution);
+  }
+  
+  return resolvedImports;
+}
+
+// Extract class/interface context from a line number in a file
+function extractContext(fileContent, lineNumber) {
+  const lines = fileContent.split('\n');
+  let context = '';
+  
+  // Look backward from the line number to find the enclosing interface/class
+  for (let i = lineNumber; i >= 0; i--) {
+    const line = lines[i].trim();
+    const contextMatch = line.match(/^(export\s+)?(interface|class|type)\s+(\w+)/);
+    if (contextMatch) {
+      context = contextMatch[3];
+      break;
+    }
+  }
+  
+  return context;
+}
+
+// Scan imported files for field definitions
+async function scanImportedFiles(resolvedImports, targetInterfaces) {
+  for (const importObj of resolvedImports) {
+    if (!importObj.resolved) continue;
+    
+    try {
+      const filePath = importObj.path;
+      const fileName = path.basename(filePath);
+      const content = fs.readFileSync(filePath, 'utf8');
+      const lines = content.split('\n');
+      
+      // Look for field names in all interfaces from the target file
+      for (const interfaceName of Object.keys(targetInterfaces)) {
+        for (const fieldName of Object.keys(targetInterfaces[interfaceName].fields)) {
+          // Skip fields that already have source information or comments
+          if (targetInterfaces[interfaceName].fields[fieldName].source ||
+              targetInterfaces[interfaceName].fields[fieldName].hasComment) {
+            continue;
+          }
+          
+          // Look for this field in the current file
+          for (let lineIndex = 0; lineIndex < lines.length; lineIndex++) {
+            const line = lines[lineIndex].trim();
+            
+            // Skip comments and empty lines
+            if (line.startsWith('//') || line === '') {
+              continue;
+            }
+            
+            // Try to match the field in different contexts
+            const fieldRegex = new RegExp(`\\b${fieldName}\\b\\s*[\\?\\!]?\\s*:`);
+            if (fieldRegex.test(line)) {
+              // Extract the surrounding context (class/interface name)
+              const contextName = extractContext(content, lineIndex);
+              
+              // Determine if this is a PE file
+              const isPE = fileName.toLowerCase().includes('pe') || 
+                          content.includes('PaymentEngine') || 
+                          contextName.includes('PE');
+              
+              // Store the source information with detailed information
+              targetInterfaces[interfaceName].fields[fieldName].source = {
+                file: fileName,
+                isPE: isPE,
+                line: lineIndex + 1,
+                context: contextName,
+                originalPath: importObj.original
+              };
+              
+              if (config.verbose) {
+                console.log(`Found "${fieldName}" in ${fileName} at line ${lineIndex + 1} in ${contextName || 'global scope'}`);
+              }
+              
+              break;
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`Error processing file ${importObj.path}:`, error);
+    }
+  }
+}
+
+// Update the content with source comments
+function updateContentWithComments(content, interfaces) {
+  const lines = content.split('\n');
+  let linesInserted = 0;
+  
+  // Process each interface
+  for (const interfaceName of Object.keys(interfaces)) {
+    // Process each field in the interface
+    for (const fieldName of Object.keys(interfaces[interfaceName].fields)) {
+      const field = interfaces[interfaceName].fields[fieldName];
+      
+      // Skip if the field already has a comment or no source was found
+      if (field.hasComment || !field.source) {
+        continue;
+      }
+      
+      // Create the appropriate comment with detailed information
+      let commentLine;
+      if (field.source.isPE) {
+        if (field.source.context) {
+          commentLine = `  // Found in PE: ${field.source.context} line ${field.source.line}`;
+        } else {
+          commentLine = `  // Found in PE: ${fieldName} line ${field.source.line}`;
+        }
+      } else {
+        if (field.source.context) {
+          commentLine = `  // Found in ${field.source.file} (${field.source.context}) line ${field.source.line}`;
+        } else {
+          commentLine = `  // Found in ${field.source.file} line ${field.source.line}`;
+        }
+      }
+      
+      // Insert the comment before the field (accounting for previously inserted lines)
+      const actualLineIndex = field.lineIndex + linesInserted;
+      lines.splice(actualLineIndex, 0, commentLine);
+      linesInserted++;
+    }
+  }
+  
+  return lines.join('\n');
+}
+
+// Run the script
+main().catch(error => {
+  console.error('Error:', error);
+  process.exit(1);
+});
